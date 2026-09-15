@@ -82,6 +82,11 @@ test("shows compact metadata and an icon-only copy action after the turn finishe
   expect(html).toContain('class="assistant-summary-meta"')
   expect(html).toContain("Build · raccoon-pro · 3 秒")
   expect(html).toContain('aria-label="复制总结"')
+  expect(html).toContain('class="assistant-summary-copy-icon"')
+  expect(html).toContain('d="M168,152a8,8,0,0,1-8,8H96')
+  expect(html.indexOf('class="assistant-summary-copy"')).toBeLessThan(
+    html.indexOf('class="assistant-summary-meta"'),
+  )
   expect(html).not.toContain("<span>复制总结</span>")
   expect(html).not.toContain("is-entering")
 })

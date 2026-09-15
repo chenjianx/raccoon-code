@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { CaretRight, Check, Copy, Plus, X } from "@phosphor-icons/react"
+import { CaretRight, Check, ClipboardText, Plus, X } from "@phosphor-icons/react"
 import { useLanguage } from "../../context/language"
 import type { I18nKey } from "../../i18n/en"
 import type { RaccoonPermissionAction, RaccoonPermissionConfig, RaccoonPermissionRule } from "../../protocol"
@@ -363,7 +363,7 @@ export function PermissionRuleset(props: { agent: string; rules: RaccoonPermissi
         <span className="ml-1 text-[12px] font-medium text-[var(--color-foreground)]">{language.t("settings.agents.permissions.calculated")}</span>
         <span className="ml-2 text-[11px] text-[var(--color-muted)]">{language.t("settings.agents.permissions.count", { count: props.rules.length })}</span>
         <Button variant="icon" className="ml-auto" title={language.t("settings.agents.permissions.copy")} onClick={copy}>
-          {copied ? <Check size={14} weight="bold" /> : <Copy size={14} weight="bold" />}
+          {copied ? <Check size={14} weight="bold" /> : <ClipboardText size={14} />}
         </Button>
       </div>
 

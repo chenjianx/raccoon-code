@@ -8,7 +8,7 @@
   }
 
   .assistant-summary-actions {
-    @apply mt-3 flex min-h-7 w-full items-center justify-between gap-2 text-[11px] leading-4 text-[var(--color-muted)];
+    @apply mt-2.5 flex min-h-7 w-auto items-center justify-start gap-1.5 text-[11px] leading-4 text-[var(--color-muted)];
   }
 
   .assistant-summary-actions.is-entering {
@@ -16,11 +16,15 @@
   }
 
   .assistant-summary-meta {
-    @apply min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap tabular-nums;
+    @apply min-w-0 overflow-hidden text-ellipsis whitespace-nowrap tabular-nums;
   }
 
   .assistant-summary-copy {
-    @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] border border-[var(--color-border)] bg-transparent p-0 text-[var(--color-muted)] transition-colors hover:bg-[var(--color-hover)] hover:text-[var(--color-foreground)] focus:outline focus:outline-1 focus:outline-offset-[-1px] focus:outline-[var(--color-focus)];
+    @apply -mx-1.5 inline-flex h-7 w-7 shrink-0 appearance-none items-center justify-center rounded-[5px] border-0 bg-transparent p-0 text-[var(--color-muted)] transition-colors hover:text-[var(--color-foreground)] focus:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-[-1px] focus-visible:outline-[var(--color-focus)];
+  }
+
+  .assistant-summary-copy-icon {
+    @apply size-4 shrink-0;
   }
 
   .assistant-reasoning {
@@ -625,6 +629,30 @@
     @apply flex min-w-0 flex-col gap-2 empty:hidden;
   }
 
+  .permission-dock-context {
+    @apply m-0 flex flex-col gap-1.5 px-0.5 py-0.5;
+  }
+
+  .permission-dock-context-row {
+    @apply grid min-w-0 grid-cols-[76px_minmax(0,1fr)] gap-2;
+  }
+
+  .permission-dock-context-row dt {
+    @apply text-[var(--color-muted)];
+  }
+
+  .permission-dock-context-row dd {
+    @apply m-0 min-w-0 break-words text-[var(--color-foreground)];
+  }
+
+  .permission-dock-scope {
+    @apply flex flex-col gap-0.5;
+  }
+
+  .permission-dock-scope code {
+    @apply break-all font-mono text-[11px];
+  }
+
   .permission-dock-body .tool-diff-panel {
     @apply mt-0;
   }
@@ -727,28 +755,47 @@
   }
 
   .revert-bar {
-    @apply mt-2 w-full rounded-[6px] border border-[color-mix(in_srgb,var(--color-focus)_26%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-background)_95%,var(--color-button))] px-2.5 py-2;
+    @apply mt-2 w-full overflow-hidden rounded-[6px] border border-[var(--color-border)] bg-[color-mix(in_srgb,var(--color-background)_97%,var(--color-button))];
   }
 
-  .revert-bar-head {
-    @apply flex items-center justify-between gap-2 text-[12px] font-medium text-[var(--color-foreground)];
+  .revert-bar-toggle {
+    @apply flex h-9 w-full appearance-none items-center gap-2 border-0 bg-transparent px-2.5 text-left text-[12px] text-[var(--color-muted)] transition-colors hover:bg-[var(--color-hover)] focus:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-[-1px] focus-visible:outline-[var(--color-focus)];
   }
 
-  .revert-bar-action,
-  .revert-bar-mini {
-    @apply inline-flex items-center gap-1 rounded-[6px] border border-[var(--color-border)] bg-[var(--color-button)] px-2 py-1 text-[12px] text-[var(--color-foreground)] hover:bg-[var(--color-hover)];
+  .revert-bar-chevron {
+    @apply shrink-0;
+  }
+
+  .revert-bar-title {
+    @apply shrink-0 font-medium text-[var(--color-foreground)];
+  }
+
+  .revert-bar-preview {
+    @apply min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap;
+  }
+
+  .revert-bar-chevron {
+    @apply ml-auto transition-transform duration-150;
+  }
+
+  .revert-bar.is-expanded .revert-bar-chevron {
+    @apply rotate-180;
   }
 
   .revert-bar-list {
-    @apply mt-2 flex flex-col gap-1;
+    @apply flex max-h-40 flex-col overflow-y-auto border-t border-[var(--color-border)] px-2.5 py-1;
   }
 
   .revert-bar-row {
-    @apply flex items-center justify-between gap-2;
+    @apply flex min-h-7 items-center justify-between gap-2;
   }
 
   .revert-bar-text {
     @apply min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] text-[var(--color-muted)];
+  }
+
+  .revert-bar-restore {
+    @apply inline-flex h-7 shrink-0 appearance-none items-center rounded-[5px] border-0 bg-transparent px-2 text-[12px] text-[var(--color-foreground)] transition-colors hover:bg-[var(--color-hover-strong)] focus:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-[-1px] focus-visible:outline-[var(--color-focus)] disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .turn-role {
@@ -773,6 +820,10 @@
 
   .working-dot {
     @apply animate-pulse;
+  }
+
+  .permission-waiting-dot {
+    @apply animate-none;
   }
 
   .tool-part {
@@ -1405,6 +1456,12 @@
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--chat-accent) 12%, transparent);
   }
 
+  .chat-view .tool-activity > .tool-part[data-status="waiting_permission"]::before {
+    border-color: var(--chat-accent);
+    background: var(--color-background);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--chat-accent) 12%, transparent);
+  }
+
   .chat-view .tool-activity > .tool-part[data-status="pending"]::before {
     border-color: color-mix(in srgb, var(--color-muted) 72%, var(--color-background));
     background: var(--color-background);
@@ -1439,6 +1496,10 @@
   }
 
   .chat-view .tool-activity > .tool-part[data-status="running"] [data-slot="basic-tool-tool-arg"] {
+    @apply font-medium text-[var(--chat-accent)];
+  }
+
+  .chat-view .tool-activity > .tool-part[data-status="waiting_permission"] [data-slot="basic-tool-tool-arg"] {
     @apply font-medium text-[var(--chat-accent)];
   }
 

@@ -117,6 +117,25 @@ test("keeps task status and icon navigation arrow in one trailing alignment slot
   expect(html).not.toContain("›")
 })
 
+test("shows that a running tool is waiting for permission", () => {
+  const html = renderToStaticMarkup(
+    <VSCodeProvider>
+      <LanguageProvider>
+        <SessionProvider>
+          <ToolPart
+            part={{ id: "prt_shell", type: "tool", tool: "bash", status: "running", input: { command: "ls /workspace" } }}
+            waitingForPermission
+          />
+        </SessionProvider>
+      </LanguageProvider>
+    </VSCodeProvider>,
+  )
+
+  expect(html).toContain('data-status="waiting_permission"')
+  expect(html).toContain("等待授权")
+  expect(html).not.toContain("执行中")
+})
+
 test("reserves the icon arrow column when a completed tool has no details", () => {
   const html = renderToStaticMarkup(
     <VSCodeProvider>

@@ -219,7 +219,7 @@ function toolLabel(tool: string, t: ReturnType<typeof useLanguage>["t"]) {
   return tool in keys ? t(keys[tool as keyof typeof keys]) : tool
 }
 
-function toolInfo(part: RaccoonMessagePart, t: ReturnType<typeof useLanguage>["t"]) {
+export function toolInfo(part: RaccoonMessagePart, t: ReturnType<typeof useLanguage>["t"]) {
   const tool = part.tool ?? "tool"
   const label = toolLabel(tool, t)
   const file = firstString(part.input, ["filePath", "filepath", "file", "target_file"])
@@ -257,6 +257,7 @@ function toolStatusState(status: string | undefined) {
 function toolStatus(status: string | undefined, t: ReturnType<typeof useLanguage>["t"]) {
   const state = toolStatusState(status)
   if (state === "running") return t("tool.status.running")
+  if (state === "waiting_permission") return t("tool.status.waitingPermission")
   if (state === "failed") return t("tool.status.failed")
   return undefined
 }
@@ -307,9 +308,10 @@ function ToolSummary(props: { info: ReturnType<typeof toolInfo>; status?: string
   )
 }
 
-export function ToolPart(props: { part: RaccoonMessagePart }) {
+export function ToolPart(props: { part: RaccoonMessagePart; waitingForPermission?: boolean; onToggle?: () => void }) {
   const language = useLanguage()
   const session = useSession()
+  const displayStatus = props.waitingForPermission ? "waiting_permission" : props.part.status
   const diffs = props.part.tool === "edit" || props.part.tool === "apply_patch" || props.part.tool === "patch" ? diffFiles(props.part) : []
   const onlyDiff = diffs.length > 0
   const lines = onlyDiff ? [] : inputLines(props.part)
@@ -322,8 +324,13 @@ export function ToolPart(props: { part: RaccoonMessagePart }) {
 
   if (todos.length > 0) {
     return (
-      <details className={`tool-part todo-part ${props.part.error ? "errored" : ""}`} data-status={toolStatusState(props.part.status)} open>
-        <ToolSummary info={{ ...info, subtitle: language.t("tool.todo.count", { count: todos.length }) }} status={props.part.status} />
+      <details
+        className={`tool-part todo-part ${props.part.error ? "errored" : ""}`}
+        data-status={toolStatusState(displayStatus)}
+        onToggle={props.onToggle}
+        open
+      >
+        <ToolSummary info={{ ...info, subtitle: language.t("tool.todo.count", { count: todos.length }) }} status={displayStatus} />
         <div data-slot="collapsible-content" className="tool-details">
           <TodoOutput todos={todos} />
         </div>
@@ -337,8 +344,8 @@ export function ToolPart(props: { part: RaccoonMessagePart }) {
     const subSession = session.state.subSessions?.[subSessionID]
     const duration = toolDuration(subSession?.startedAt, subSession?.completedAt)
     const status =
-      toolStatus(props.part.status, language.t) ??
-      (toolStatusState(props.part.status) === "completed" && subSession
+      toolStatus(displayStatus, language.t) ??
+      (toolStatusState(displayStatus) === "completed" && subSession
         ? duration
           ? language.t("tool.task.completed", { count: subSession.toolcalls, duration })
           : language.t("tool.task.toolcalls", { count: subSession.toolcalls })
@@ -347,7 +354,7 @@ export function ToolPart(props: { part: RaccoonMessagePart }) {
       <button
         type="button"
         className={`tool-part task-part task-row ${props.part.error ? "errored" : ""}`}
-        data-status={toolStatusState(props.part.status)}
+        data-status={toolStatusState(displayStatus)}
         onClick={() => session.openSubAgent(subSessionID, info.subtitle)}
         title={language.t("tool.task.open")}
       >
@@ -370,8 +377,12 @@ export function ToolPart(props: { part: RaccoonMessagePart }) {
   }
 
   return (
-    <details className={`tool-part ${props.part.error ? "errored" : ""}`} data-status={toolStatusState(props.part.status)}>
-      <ToolSummary info={info} status={props.part.status} showArrow={hasDetails} />
+    <details
+      className={`tool-part ${props.part.error ? "errored" : ""}`}
+      data-status={toolStatusState(displayStatus)}
+      onToggle={props.onToggle}
+    >
+      <ToolSummary info={info} status={displayStatus} showArrow={hasDetails} />
       {hasDetails ? (
         <div data-slot="collapsible-content" className="tool-details">
           {diffs.length > 0 ? (

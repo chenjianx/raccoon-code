@@ -83,6 +83,7 @@ export function mapPart(part: Part): RaccoonMessagePart {
     const metadata = "metadata" in part.state ? part.state.metadata : part.metadata
     return {
       id: part.id,
+      callID: part.callID,
       type: "tool",
       tool: part.tool,
       status,

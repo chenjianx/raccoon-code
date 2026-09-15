@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react"
 import { useSession } from "../../../context/session"
 import { useLanguage } from "../../../context/language"
-import type { RaccoonMessage, RaccoonModel } from "../../../protocol"
+import type { RaccoonMessage, RaccoonModel, RaccoonPermissionRequest } from "../../../protocol"
 import { AssistantSummaryFooter, AssistantText } from "./message-list-text"
 import { turnPartGroups, turns, visibleParts } from "./message-list-model"
 import { ToolPart } from "./message-list-tool"
@@ -65,6 +65,8 @@ export function MessageTurn(props: {
   inlineQuestions: ReturnType<typeof useSession>["questions"]
   readonly?: boolean
   busy?: boolean
+  permissions?: RaccoonPermissionRequest[]
+  onToolToggle?: () => void
 }) {
   const language = useLanguage()
   const target = copyTarget(props.turn)
@@ -112,7 +114,16 @@ export function MessageTurn(props: {
                   return (
                     <div className="tool-activity" key={`tools-${group.entries[0]?.part.id}`}>
                       {group.entries.map((entry) => (
-                        <ToolPart part={entry.part} key={entry.part.id} />
+                        <ToolPart
+                          part={entry.part}
+                          key={entry.part.id}
+                          waitingForPermission={props.permissions?.some(
+                            (permission) =>
+                              permission.tool?.messageID === entry.messageID &&
+                              (permission.tool.callID === entry.part.callID || permission.tool.callID === entry.part.id),
+                          )}
+                          onToggle={props.onToolToggle}
+                        />
                       ))}
                     </div>
                   )

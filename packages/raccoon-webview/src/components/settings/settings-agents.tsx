@@ -1,4 +1,4 @@
-import { ArrowCounterClockwise, Copy, DownloadSimple, Plus, Trash, UploadSimple } from "@phosphor-icons/react"
+import { ArrowCounterClockwise, ClipboardText, DownloadSimple, Plus, Trash, UploadSimple } from "@phosphor-icons/react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import type {
   RaccoonAgent,
@@ -416,7 +416,7 @@ export function SettingsAgents(props: {
                   title={language.t("settings.agents.duplicate")}
                   onClick={() => selectDraft(duplicateDraft(selected, agents), true)}
                 >
-                  <Copy size={14} weight="bold" />
+                  <ClipboardText size={14} />
                   <span>{language.t("settings.agents.action.duplicate")}</span>
                 </Button>
               ) : null}

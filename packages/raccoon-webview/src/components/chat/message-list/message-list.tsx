@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react"
 import { ArrowDownIcon } from "@phosphor-icons/react"
-import type { RaccoonMessage } from "../../../protocol"
+import type { RaccoonMessage, RaccoonPermissionRequest } from "../../../protocol"
 import { useLanguage } from "../../../context/language"
 import { useSession } from "../../../context/session"
 import { sessionTreePermissions } from "../../../context/session-requests"
@@ -8,11 +8,18 @@ import { turns } from "./message-list-model"
 import { MessageTurn } from "./message-list-turn"
 import { RevertBar } from "./message-list-user"
 import { QuestionDock } from "./question-dock"
-import { PermissionDock } from "./permission-dock"
+import { PermissionDock, permissionSource } from "./permission-dock"
 import { WelcomeEmpty } from "./welcome-empty"
 
 export function MessageList(
-  props: { messages?: RaccoonMessage[]; readonly?: boolean; follow?: boolean; busy?: boolean; sessionID?: string } = {},
+  props: {
+    messages?: RaccoonMessage[]
+    readonly?: boolean
+    follow?: boolean
+    busy?: boolean
+    sessionID?: string
+    permissions?: RaccoonPermissionRequest[]
+  } = {},
 ) {
   const language = useLanguage()
   const session = useSession()
@@ -100,6 +107,23 @@ export function MessageList(
     followBottomRef.current = true
   }
 
+  const handleDetailsToggle = () => {
+    const root = rootRef.current
+    if (!root || !followBottomRef.current) return
+    root.scrollTo({ top: root.scrollHeight, behavior: "auto" })
+    setShowScrollBottom(false)
+  }
+
+  const handleRevertExpand = () => {
+    requestAnimationFrame(() => {
+      const root = rootRef.current
+      if (!root) return
+      root.scrollTo({ top: root.scrollHeight, behavior: "auto" })
+      setShowScrollBottom(false)
+      followBottomRef.current = true
+    })
+  }
+
   const inlineQuestions = readonly ? [] : session.questions.filter((request) => !!request.tool?.messageID)
   const floatingQuestions = readonly ? [] : session.questions.filter((request) => !request.tool?.messageID)
   // Show permission prompts one at a time — the rest queue behind the active one.
@@ -107,7 +131,7 @@ export function MessageList(
   const treePermissions = sessionTreePermissions({
     sessionID,
     messages: props.messages ?? session.visibleMessages,
-    permissions: session.permissions,
+    permissions: props.permissions ?? session.permissions,
     sessions: session.sessions,
     subSessions: session.state.subSessions,
   })
@@ -131,20 +155,29 @@ export function MessageList(
             inlineQuestions={inlineQuestions}
             readonly={readonly}
             busy={activeTurnBusy && index === messageTurns.length - 1}
+            permissions={treePermissions}
+            onToolToggle={handleDetailsToggle}
           />
         ))}
-        {!readonly && session.revertedMessages.length > 0 ? <RevertBar items={session.revertedMessages} /> : null}
-        {(!readonly && session.state.loading) || busy ? (
-          <div className="working-indicator">
-            <span className="working-dot" />
-            <span>{language.t("message.working")}</span>
+        {!readonly && session.revertedMessages.length > 0 ? (
+          <RevertBar items={session.revertedMessages} onExpand={handleRevertExpand} />
+        ) : null}
+        {activePermission || (!readonly && session.state.loading) || busy ? (
+          <div className={`working-indicator${activePermission ? " permission-waiting-indicator" : ""}`}>
+            <span className={`working-dot${activePermission ? " permission-waiting-dot" : ""}`} />
+            <span>{activePermission ? language.t("permission.waiting") : language.t("message.working")}</span>
           </div>
         ) : null}
         {floatingQuestions.map((request) => (
           <QuestionDock key={request.id} request={request} />
         ))}
         {activePermission ? (
-          <PermissionDock key={activePermission.id} request={activePermission} remaining={treePermissions.length - 1} />
+          <PermissionDock
+            key={activePermission.id}
+            request={activePermission}
+            remaining={treePermissions.length - 1}
+            source={permissionSource(activePermission, props.messages ?? session.visibleMessages)}
+          />
         ) : null}
       </div>
       {showScrollBottom ? (

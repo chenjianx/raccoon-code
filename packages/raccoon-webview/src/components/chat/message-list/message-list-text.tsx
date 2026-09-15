@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { CheckIcon, CopyIcon } from "@phosphor-icons/react"
+import { CheckIcon, ClipboardTextIcon } from "@phosphor-icons/react"
 import { useLanguage } from "../../../context/language"
 import { MarkdownLite } from "../../ui/markdown-lite"
 
@@ -54,11 +54,6 @@ export function AssistantSummaryFooter(props: { text: string; meta: string; ente
 
   return (
     <div className={`assistant-summary-actions${props.entering ? " is-entering" : ""}`}>
-      {props.meta ? (
-        <span className="assistant-summary-meta" title={props.meta}>
-          {props.meta}
-        </span>
-      ) : null}
       <button
         type="button"
         className="assistant-summary-copy"
@@ -66,8 +61,17 @@ export function AssistantSummaryFooter(props: { text: string; meta: string; ente
         aria-label={copied ? language.t("assistant.copied") : language.t("assistant.copySummary")}
         title={copied ? language.t("assistant.copied") : language.t("assistant.copySummary")}
       >
-        {copied ? <CheckIcon size={14} weight="bold" /> : <CopyIcon size={14} weight="bold" />}
+        {copied ? (
+          <CheckIcon className="assistant-summary-copy-icon" weight="bold" aria-hidden="true" />
+        ) : (
+          <ClipboardTextIcon className="assistant-summary-copy-icon" aria-hidden="true" />
+        )}
       </button>
+      {props.meta ? (
+        <span className="assistant-summary-meta" title={props.meta}>
+          {props.meta}
+        </span>
+      ) : null}
     </div>
   )
 }

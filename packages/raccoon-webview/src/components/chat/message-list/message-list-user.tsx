@@ -1,5 +1,5 @@
-import { useState } from "react"
-import { ArrowClockwiseIcon, ArrowUUpLeftIcon, CheckIcon, CopyIcon, ImageIcon } from "@phosphor-icons/react"
+import { useEffect, useId, useState } from "react"
+import { ArrowCounterClockwiseIcon, CaretDownIcon, CheckIcon, ClipboardTextIcon, ImageIcon } from "@phosphor-icons/react"
 import { useLanguage } from "../../../context/language"
 import { useSession } from "../../../context/session"
 import { RESERVED_MENTION_PATHS } from "../prompt/file-mention"
@@ -111,7 +111,7 @@ export function UserMessage(props: { message: RaccoonMessage; disabled?: boolean
               aria-label={language.t("message.revertAndEdit")}
               title={language.t("message.revertAndEdit")}
             >
-              <ArrowUUpLeftIcon size={14} />
+              <ArrowCounterClockwiseIcon size={14} />
             </button>
           ) : null}
           {text ? (
@@ -122,7 +122,7 @@ export function UserMessage(props: { message: RaccoonMessage; disabled?: boolean
               aria-label={copied ? language.t("message.copied") : language.t("message.copy")}
               title={copied ? language.t("message.copied") : language.t("message.copy")}
             >
-              {copied ? <CheckIcon size={14} weight="bold" /> : <CopyIcon size={14} weight="bold" />}
+              {copied ? <CheckIcon size={14} weight="bold" /> : <ClipboardTextIcon size={14} />}
             </button>
           ) : null}
         </div>
@@ -131,43 +131,59 @@ export function UserMessage(props: { message: RaccoonMessage; disabled?: boolean
   )
 }
 
-export function RevertBar(props: { items: RaccoonMessage[] }) {
+export function RevertBar(props: { items: RaccoonMessage[]; onExpand?: () => void }) {
   const session = useSession()
   const language = useLanguage()
+  const listID = useId()
+  const [expanded, setExpanded] = useState(false)
   const [first] = props.items
+
+  useEffect(() => {
+    setExpanded(false)
+  }, [first?.id, props.items.length])
+
   if (!first) return null
 
+  const toggle = () => {
+    if (expanded) {
+      setExpanded(false)
+      return
+    }
+    setExpanded(true)
+    props.onExpand?.()
+  }
+
   return (
-    <div className="revert-bar">
-      <div className="revert-bar-head">
-        <span>{language.t("revert.title", { count: props.items.length })}</span>
-        <button
-          type="button"
-          className="revert-bar-action"
-          onClick={() => session.restoreRevertedMessage(first.id)}
-          disabled={session.state.busy}
-          aria-label={language.t("revert.restore")}
-        >
-          <ArrowClockwiseIcon size={14} />
-          <span>{language.t("revert.restore")}</span>
-        </button>
-      </div>
-      <div className="revert-bar-list">
-        {props.items.map((item) => (
-          <div className="revert-bar-row" key={item.id}>
-            <span className="revert-bar-text">{item.text || item.id}</span>
-            <button
-              type="button"
-              className="revert-bar-mini"
-              onClick={() => session.restoreRevertedMessage(item.id)}
-              disabled={session.state.busy}
-              aria-label={language.t("revert.restore")}
-            >
-              <ArrowUUpLeftIcon size={14} />
-            </button>
-          </div>
-        ))}
-      </div>
+    <div className={`revert-bar${expanded ? " is-expanded" : ""}`}>
+      <button
+        type="button"
+        className="revert-bar-toggle"
+        onClick={toggle}
+        aria-expanded={expanded}
+        aria-controls={listID}
+        aria-label={language.t(expanded ? "revert.collapse" : "revert.expand")}
+      >
+        <span className="revert-bar-title">{language.t("revert.title", { count: props.items.length })}</span>
+        {!expanded ? <span className="revert-bar-preview">{first.text || first.id}</span> : null}
+        <CaretDownIcon className="revert-bar-chevron" size={14} />
+      </button>
+      {expanded ? (
+        <div className="revert-bar-list" id={listID}>
+          {props.items.map((item) => (
+            <div className="revert-bar-row" key={item.id}>
+              <span className="revert-bar-text">{item.text || item.id}</span>
+              <button
+                type="button"
+                className="revert-bar-restore"
+                onClick={() => session.restoreRevertedMessage(item.id)}
+                disabled={session.state.busy}
+              >
+                {language.t("revert.restoreThrough")}
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }

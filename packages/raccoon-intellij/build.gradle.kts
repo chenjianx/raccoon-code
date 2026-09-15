@@ -39,11 +39,22 @@ kotlin {
 
 tasks {
   val raccoonVscode = layout.projectDirectory.dir("../raccoon-vscode").asFile
+  val raccoonWebview = layout.projectDirectory.dir("../raccoon-webview").asFile
+  val webviewResources = layout.projectDirectory.dir("src/main/resources/webview").asFile
   val opencodeDir = layout.projectDirectory.dir("../opencode").asFile
   val localRun = gradle.startParameter.taskNames.any { it == "runIde" || it.endsWith(":runIde") }
+  val prepareRaccoonWebview = register<Exec>("prepareRaccoonWebview") {
+    workingDir(raccoonWebview)
+    environment("RACCOON_WEBVIEW_OUTDIR", webviewResources.absolutePath)
+    commandLine("bun", "x", "vite", "build")
+  }
   val prepareRaccoonBinaries = register<Exec>("prepareRaccoonBinaries") {
     workingDir(raccoonVscode)
     commandLine("bun", "run", "build:cli")
+  }
+
+  processResources {
+    dependsOn(prepareRaccoonWebview)
   }
 
   if (!localRun) {

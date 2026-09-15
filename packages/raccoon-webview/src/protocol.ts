@@ -267,6 +267,7 @@ export type RaccoonSubSession = {
 
 export type RaccoonMessagePart = {
   id: string
+  callID?: string
   type:
     | "text"
     | "reasoning"

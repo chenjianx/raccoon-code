@@ -2,9 +2,10 @@ import { useMemo, useState } from "react"
 import { FolderOpen, Globe, PencilSimple, ShieldWarning, Terminal } from "@phosphor-icons/react"
 import { useLanguage } from "../../../context/language"
 import { useSession } from "../../../context/session"
-import type { RaccoonMessagePart, RaccoonPermissionRequest } from "../../../protocol"
+import type { RaccoonMessage, RaccoonMessagePart, RaccoonPermissionRequest } from "../../../protocol"
 import { DiffPanel, diffFiles } from "./message-list-diff"
 import { filename } from "./message-list-format"
+import { toolInfo } from "./message-list-tool"
 
 type Translate = ReturnType<typeof useLanguage>["t"]
 
@@ -28,7 +29,26 @@ function permissionMeta(request: RaccoonPermissionRequest, t: Translate) {
   }
 }
 
-export function PermissionDock(props: { request: RaccoonPermissionRequest; remaining?: number }) {
+export function permissionSource(request: RaccoonPermissionRequest, messages: RaccoonMessage[]) {
+  if (!request.tool) return undefined
+  return messages
+    .find((message) => message.id === request.tool?.messageID)
+    ?.parts.find(
+      (part) => part.type === "tool" && (part.callID === request.tool?.callID || part.id === request.tool?.callID),
+    )
+}
+
+function permissionAccess(permission: string, t: Translate) {
+  const keys = {
+    edit: "permission.access.edit",
+    bash: "permission.access.bash",
+    webfetch: "permission.access.webfetch",
+    external_directory: "permission.access.externalDirectory",
+  } as const
+  return permission in keys ? t(keys[permission as keyof typeof keys]) : t("permission.access.generic")
+}
+
+export function PermissionDock(props: { request: RaccoonPermissionRequest; remaining?: number; source?: RaccoonMessagePart }) {
   const session = useSession()
   const language = useLanguage()
   const [sending, setSending] = useState(false)
@@ -58,6 +78,13 @@ export function PermissionDock(props: { request: RaccoonPermissionRequest; remai
 
   const meta = permissionMeta(request, language.t)
   const Icon = meta.icon
+  const sourceInfo = props.source ? toolInfo(props.source, language.t) : undefined
+  const sourceAction = props.source?.tool === "bash" ? language.t("permission.action.bash") : sourceInfo?.title
+  const purpose =
+    sourceAction && sourceInfo?.subtitle
+      ? language.t("permission.purpose.source", { action: sourceAction, detail: sourceInfo.subtitle })
+      : sourceAction ?? language.t("permission.purpose.generic")
+  const always = request.always.filter((item) => item.trim().length > 0)
 
   const diffList = useMemo(() => {
     if (!diff) return []
@@ -109,6 +136,26 @@ export function PermissionDock(props: { request: RaccoonPermissionRequest; remai
       </div>
 
       <div className="permission-dock-body">
+        <dl className="permission-dock-context">
+          <div className="permission-dock-context-row">
+            <dt>{language.t("permission.detail.trigger")}</dt>
+            <dd>{purpose}</dd>
+          </div>
+          <div className="permission-dock-context-row">
+            <dt>{language.t("permission.detail.access")}</dt>
+            <dd>{permissionAccess(request.permission, language.t)}</dd>
+          </div>
+          {always.length > 0 ? (
+            <div className="permission-dock-context-row">
+              <dt>{language.t("permission.detail.alwaysScope")}</dt>
+              <dd className="permission-dock-scope">
+                {always.map((pattern) => (
+                  <code key={pattern}>{pattern}</code>
+                ))}
+              </dd>
+            </div>
+          ) : null}
+        </dl>
         {diffList.length > 0 ? <DiffPanel files={diffList} /> : null}
         {url ? (
           <a className="permission-dock-url" href={url} target="_blank" rel="noreferrer" title={url}>
@@ -134,7 +181,7 @@ export function PermissionDock(props: { request: RaccoonPermissionRequest; remai
         </button>
         <div className="permission-dock-footer-actions">
           <button type="button" className="permission-dock-btn permission-dock-always" onClick={() => reply("always")} disabled={busy}>
-            {language.t("permission.allowAlways")}
+            {language.t("permission.allowAlwaysScope")}
           </button>
           <button type="button" className="permission-dock-btn permission-dock-once" onClick={() => reply("once")} disabled={busy}>
             {language.t("permission.allowOnce")}

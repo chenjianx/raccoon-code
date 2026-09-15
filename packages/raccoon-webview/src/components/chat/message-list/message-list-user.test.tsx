@@ -28,6 +28,8 @@ test("groups icon-only user message actions with localized tooltips", () => {
   expect(html).toContain('aria-label="消息操作"')
   expect(html).toContain('title="撤回并编辑"')
   expect(html).toContain('title="复制消息"')
+  expect(html).toContain('d="M224,128a96,96,0,0,1-94.71,96H128')
+  expect(html).toContain('d="M168,152a8,8,0,0,1-8,8H96')
   expect(html).not.toContain(">撤回并编辑</button>")
   expect(html).not.toContain(">复制消息</button>")
 })
