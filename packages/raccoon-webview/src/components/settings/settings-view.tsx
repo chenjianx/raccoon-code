@@ -41,7 +41,10 @@ export const SettingsView = memo(function SettingsView(props: { onClose?: () => 
   const [draftModeModels, setDraftModeModels] = useState<Partial<Record<string, ModelSelection>>>(
     config.modeModels ?? {},
   )
+  const configuredAutocompleteModel =
+    config.autocompleteModel ?? config.autocompleteModels?.[0]?.id ?? "raccoon-pro-completion"
   const [draftAutocompleteEnabled, setDraftAutocompleteEnabled] = useState(config.autocompleteEnabled ?? true)
+  const [draftAutocompleteModel, setDraftAutocompleteModel] = useState(configuredAutocompleteModel)
   const [saveState, setSaveState] = useState<{ status: "idle" | "saving" | "error" | "success"; error?: string }>({
     status: "idle",
   })
@@ -52,7 +55,15 @@ export const SettingsView = memo(function SettingsView(props: { onClose?: () => 
     setDraftModeModels(config.modeModels ?? {})
     setDraftPluginLanguageMode(config.pluginLanguageMode ?? "auto")
     setDraftAutocompleteEnabled(config.autocompleteEnabled ?? true)
-  }, [config.autocompleteEnabled, config.defaultModel, config.modeModels, config.pluginLanguageMode, saveState.status])
+    setDraftAutocompleteModel(configuredAutocompleteModel)
+  }, [
+    config.autocompleteEnabled,
+    config.defaultModel,
+    config.modeModels,
+    config.pluginLanguageMode,
+    configuredAutocompleteModel,
+    saveState.status,
+  ])
 
   useEffect(() => {
     if (saveState.status !== "success") return
@@ -67,13 +78,15 @@ export const SettingsView = memo(function SettingsView(props: { onClose?: () => 
     !sameModel(draftSelectedModel, config.defaultModel) ||
     modes.some((mode) => !sameModel(draftModeModels[mode], config.modeModels?.[mode])) ||
     draftPluginLanguageMode !== (config.pluginLanguageMode ?? "auto") ||
-    draftAutocompleteEnabled !== (config.autocompleteEnabled ?? true)
+    draftAutocompleteEnabled !== (config.autocompleteEnabled ?? true) ||
+    draftAutocompleteModel !== configuredAutocompleteModel
 
   const discard = () => {
     setDraftSelectedModel(config.defaultModel)
     setDraftModeModels(config.modeModels ?? {})
     setDraftPluginLanguageMode(config.pluginLanguageMode ?? "auto")
     setDraftAutocompleteEnabled(config.autocompleteEnabled ?? true)
+    setDraftAutocompleteModel(configuredAutocompleteModel)
     setSaveState({ status: "idle" })
   }
 
@@ -93,6 +106,9 @@ export const SettingsView = memo(function SettingsView(props: { onClose?: () => 
         : {}),
       ...(draftAutocompleteEnabled !== (config.autocompleteEnabled ?? true)
         ? { autocompleteEnabled: draftAutocompleteEnabled }
+        : {}),
+      ...(draftAutocompleteModel !== configuredAutocompleteModel
+        ? { autocompleteModel: draftAutocompleteModel }
         : {}),
     })
     setSaveState(result.success ? { status: "success" } : { status: "error", error: result.error })
@@ -255,7 +271,10 @@ export const SettingsView = memo(function SettingsView(props: { onClose?: () => 
             ) : tab === "autocomplete" ? (
               <SettingsAutocomplete
                 enabled={draftAutocompleteEnabled}
+                model={draftAutocompleteModel}
+                models={config.autocompleteModels ?? []}
                 onEnabledChange={setDraftAutocompleteEnabled}
+                onModelChange={setDraftAutocompleteModel}
               />
             ) : tab === "rules" ? (
               <SettingsRules

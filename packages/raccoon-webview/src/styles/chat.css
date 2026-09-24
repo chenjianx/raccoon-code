@@ -1606,11 +1606,11 @@
   }
 
   .chat-view .prompt-auto-approve-button[data-prompt-auto-approve-state="on"] {
-    @apply border-[color-mix(in_srgb,var(--vscode-editorWarning-foreground,var(--color-warning,#d29922))_48%,transparent)] bg-[var(--color-button)] text-[var(--vscode-editorWarning-foreground,var(--color-warning,#d29922))];
+    @apply border-[var(--color-brand-border)] bg-[var(--color-brand-soft)] text-[var(--color-brand)];
   }
 
   .chat-view .prompt-auto-approve-button[data-prompt-auto-approve-state="on"]:hover {
-    @apply bg-[var(--color-hover-strong)] text-[var(--vscode-editorWarning-foreground,var(--color-warning,#d29922))];
+    @apply bg-[color-mix(in_srgb,var(--color-brand)_15%,var(--color-background))] text-[var(--color-brand-hover)];
   }
 
   .chat-view .prompt-send-button {

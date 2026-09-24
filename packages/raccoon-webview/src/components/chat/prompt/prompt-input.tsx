@@ -450,9 +450,9 @@ export function PromptInput() {
                 data-prompt-auto-approve-state={session.autoApprovePermissions ? "on" : "off"}
               >
                 {session.autoApprovePermissions ? (
-                  <ShieldSlashIcon data-prompt-permission-icon="bypass" size={18} weight="regular" />
+                  <ShieldCheckIcon data-prompt-permission-icon="enabled" size={18} weight="regular" />
                 ) : (
-                  <ShieldCheckIcon data-prompt-permission-icon="guarded" size={18} weight="regular" />
+                  <ShieldSlashIcon data-prompt-permission-icon="disabled" size={18} weight="regular" />
                 )}
               </button>
             ) : null}

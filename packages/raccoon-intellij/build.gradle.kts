@@ -15,9 +15,16 @@ repositories {
 }
 
 dependencies {
+  testImplementation(kotlin("test"))
+
   intellijPlatform {
     // Community edition is enough — we only need the platform + JCEF.
     intellijIdeaCommunity("2024.2")
+    bundledPlugin("com.intellij.java")
+    bundledPlugin("org.jetbrains.kotlin")
+    bundledPlugin("org.jetbrains.plugins.terminal")
+    testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Platform)
+    testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Plugin.Java)
   }
 }
 
@@ -52,9 +59,13 @@ tasks {
     workingDir(raccoonVscode)
     commandLine("bun", "run", "build:cli")
   }
+  val prepareRaccoonSidecar = register<Exec>("prepareRaccoonSidecar") {
+    workingDir(layout.projectDirectory.asFile)
+    commandLine("bun", "run", "build:sidecar")
+  }
 
   processResources {
-    dependsOn(prepareRaccoonWebview)
+    dependsOn(prepareRaccoonWebview, prepareRaccoonSidecar)
   }
 
   if (!localRun) {

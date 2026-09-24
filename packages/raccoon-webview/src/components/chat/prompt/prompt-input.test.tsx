@@ -80,12 +80,12 @@ test("does not compound opacity on the disabled send icon", () => {
   expect(html).not.toContain('data-prompt-action-icon="send" class="opacity-55"')
 })
 
-test("shows the guarded permission icon when automatic approval is off", () => {
+test("shows the disabled permission icon when automatic approval is off", () => {
   const html = renderPrompt({ activeSessionID: "session-1" })
 
   expect(html).toContain('data-prompt-auto-approve-state="off"')
-  expect(html).toContain('data-prompt-permission-icon="guarded"')
-  expect(html).not.toContain('data-prompt-permission-icon="bypass"')
+  expect(html).toContain('data-prompt-permission-icon="disabled"')
+  expect(html).not.toContain('data-prompt-permission-icon="enabled"')
 })
 
 test("shows only the model name in the composer trigger and keeps the full label as a tooltip", () => {

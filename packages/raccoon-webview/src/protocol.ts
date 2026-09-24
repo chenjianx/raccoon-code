@@ -68,6 +68,11 @@ export type RaccoonModel = {
   variants?: string[]
 }
 
+export type RaccoonAutocompleteModel = {
+  id: string
+  label: string
+}
+
 export type RaccoonProviderInfo = {
   id: string
   name: string
@@ -563,6 +568,8 @@ export type RaccoonState = {
   }
   modeModels?: Partial<Record<ChatMode, { providerID: string; modelID: string }>>
   autocompleteEnabled?: boolean
+  autocompleteModel?: string
+  autocompleteModels?: RaccoonAutocompleteModel[]
   mode: ChatMode
   loading: boolean
   busy?: boolean
@@ -603,6 +610,7 @@ export type WebviewToExtension =
         modeModels?: Partial<Record<ChatMode, { providerID: string; modelID: string } | undefined>>
         pluginLanguageMode?: RaccoonPluginLanguageMode
         autocompleteEnabled?: boolean
+        autocompleteModel?: string
       }
     }
   | { type: "setModelEnabled"; model: { providerID: string; modelID: string }; enabled: boolean }

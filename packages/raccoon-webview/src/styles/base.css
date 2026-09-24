@@ -69,11 +69,19 @@
   body.vscode-light,
   body.vscode-high-contrast-light {
     color-scheme: light;
+    --color-brand: #7556dc;
+    --color-brand-hover: #6847d1;
+    --color-brand-soft: color-mix(in srgb, var(--color-brand) 9%, var(--color-background));
+    --color-brand-border: color-mix(in srgb, var(--color-brand) 55%, var(--color-border));
   }
 
   body.vscode-dark,
   body.vscode-high-contrast {
     color-scheme: dark;
+    --color-brand: #9a7bff;
+    --color-brand-hover: #aa91ff;
+    --color-brand-soft: color-mix(in srgb, var(--color-brand) 9%, var(--color-background));
+    --color-brand-border: color-mix(in srgb, var(--color-brand) 55%, var(--color-border));
   }
 
   body.vscode-high-contrast,

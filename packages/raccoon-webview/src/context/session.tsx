@@ -178,6 +178,8 @@ type SessionConfigContextValue = {
   providerAuthMethods: RaccoonState["providerAuthMethods"]
   pluginLanguageMode: RaccoonState["pluginLanguageMode"]
   autocompleteEnabled: RaccoonState["autocompleteEnabled"]
+  autocompleteModel: RaccoonState["autocompleteModel"]
+  autocompleteModels: RaccoonState["autocompleteModels"]
   raccoonLoggedIn: RaccoonState["raccoonLoggedIn"]
 }
 
@@ -710,6 +712,8 @@ export function SessionProvider(props: { children: ReactNode }) {
       providerAuthMethods: state.providerAuthMethods,
       pluginLanguageMode: state.pluginLanguageMode,
       autocompleteEnabled: state.autocompleteEnabled,
+      autocompleteModel: state.autocompleteModel,
+      autocompleteModels: state.autocompleteModels,
       raccoonLoggedIn: state.raccoonLoggedIn,
     }
     // Deliberately depends only on config slices — NOT on `state`, `loading`, or
@@ -731,6 +735,8 @@ export function SessionProvider(props: { children: ReactNode }) {
     state.providerAuthMethods,
     state.pluginLanguageMode,
     state.autocompleteEnabled,
+    state.autocompleteModel,
+    state.autocompleteModels,
     state.raccoonLoggedIn,
   ])
 

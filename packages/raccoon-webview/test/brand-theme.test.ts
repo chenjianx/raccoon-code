@@ -129,6 +129,27 @@ describe("VS Code brand theme", () => {
     await page.close()
   })
 
+  test("keeps checked toggles visible when the host cannot resolve light-dark", async () => {
+    const page = await browser.newPage({ viewport: { width: 420, height: 760 } })
+    await page.goto(url)
+
+    const background = await page.evaluate(() => {
+      document.body.className = "vscode-dark"
+      document.documentElement.style.setProperty("--color-brand", "unsupported-light-dark-value")
+
+      const toggle = document.createElement("input")
+      toggle.type = "checkbox"
+      toggle.className = "settings-toggle"
+      toggle.checked = true
+      document.body.append(toggle)
+
+      return getComputedStyle(toggle).backgroundColor
+    })
+
+    expect(background).toBe("rgb(154, 123, 255)")
+    await page.close()
+  })
+
   test("defers brand actions to VS Code in high contrast themes", async () => {
     const page = await browser.newPage({ viewport: { width: 420, height: 760 } })
     await page.goto(url)

@@ -246,6 +246,8 @@ export const dict = {
   "settings.autocomplete.title": "自動補全",
   "settings.autocomplete.enable.title": "行內自動補全",
   "settings.autocomplete.enable.description": "輸入時顯示行內（灰字）補全建議。",
+  "settings.autocomplete.model.title": "自動補全模型",
+  "settings.autocomplete.model.description": "選擇用於行內自動補全建議的模型。",
   "settings.providers.title": "提供商",
   "settings.providers.subtitle": "管理 Raccoon 帳號及模型服務連線。",
   "settings.providers.section.connected": "已連接",

@@ -250,6 +250,8 @@ export const dict = {
   "settings.autocomplete.title": "Autocomplete",
   "settings.autocomplete.enable.title": "Inline autocomplete",
   "settings.autocomplete.enable.description": "Show inline (ghost text) suggestions as you type.",
+  "settings.autocomplete.model.title": "Autocomplete model",
+  "settings.autocomplete.model.description": "Choose the model used for inline autocomplete suggestions.",
   "settings.providers.title": "Providers",
   "settings.providers.subtitle": "Manage your Raccoon account and model service connections.",
   "settings.providers.section.connected": "Connected",

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build:webview": "RACCOON_WEBVIEW_OUTDIR=\"$PWD/src/main/resources/webview\" bash -c 'cd ../raccoon-webview && exec ./node_modules/.bin/vite build'",
-    "build:sidecar": "node esbuild.sidecar.mjs",
+    "build:sidecar": "bun esbuild.sidecar.mjs",
     "build": "bun run build:webview && bun run build:sidecar",
     "check-types": "tsc --noEmit",
     "test": "bun test --timeout 120000"
@@ -18,6 +18,8 @@
   "devDependencies": {
     "@types/node": "20.x",
     "esbuild": "^0.25.3",
-    "typescript": "^5.8.3"
+    "tree-sitter-wasms": "0.1.13",
+    "typescript": "^5.8.3",
+    "web-tree-sitter": "0.25.10"
   }
 }
