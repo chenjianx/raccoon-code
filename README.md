@@ -64,6 +64,16 @@ nix run nixpkgs#opencode           # or github:anomalyco/opencode for latest dev
 > [!TIP]
 > Remove versions older than 0.1.x before installing.
 
+### Raccoon CLI (V2)
+
+Raccoon uses the V2 CLI with its own configuration files (`raccoon.json` and `.raccoon/`) and local state. From a source checkout, run:
+
+```bash
+cd packages/cli && RACCOON_CLI=1 bun src/index.ts --help
+```
+
+The standalone Raccoon package and platform binaries are built with `bun packages/cli/script/build.ts --raccoon-only` and packed with `bun packages/cli/script/publish.ts --raccoon-only --dry-run`. After an npm release, install with `npm install -g raccoon-code-cli` or `./install --raccoon`; both use the independent Raccoon packages. `raccoon upgrade` reads the `raccoon-code-cli` npm release, and `raccoon uninstall` removes only Raccoon paths and its owning package. The repository's Nix package also exposes a standalone `raccoon` binary.
+
 ### Desktop App (BETA)
 
 OpenCode is also available as a desktop application. Download directly from the [releases page](https://github.com/anomalyco/opencode/releases) or [opencode.ai/download](https://opencode.ai/download).

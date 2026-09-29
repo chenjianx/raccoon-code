@@ -4,6 +4,7 @@ import { define } from "@opencode/plugin/effect/plugin"
 import { Effect } from "effect"
 import { Agent } from "../agent.js"
 import { Permission } from "../permission.js"
+import { RaccoonAgents } from "../raccoon/agents.js" // raccoon_change - add Raccoon Ask agent
 
 const PROMPT_EXPLORE = `You are a file search specialist. You excel at thoroughly navigating and exploring codebases.
 
@@ -83,7 +84,9 @@ Rules:
 export const Plugin = define({
   id: "opencode.agent",
   effect: Effect.fn(function* (ctx) {
+    if (ctx.app.name === "raccoon") yield* ctx.permission.hook("evaluate", RaccoonAgents.guard) // raccoon_change - enforce Ask read-only rules after config
     yield* ctx.agent.transform((editor) => {
+      if (ctx.app.name === "raccoon") RaccoonAgents.add(editor) // raccoon_change - register Ask only for Raccoon
       editor.update(Agent.defaultID, (item) => {
         item.name = Agent.Name.make("Build")
         item.description = "The default agent. Executes tools based on configured permissions."

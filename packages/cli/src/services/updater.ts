@@ -124,6 +124,12 @@ export function decodePolicy(text: string): Policy | undefined {
 }
 
 const make = Effect.gen(function* () {
+  // raccoon_change - route Raccoon updates only through its own npm release
+  const raccoon = process.env.RACCOON_CLI === "1"
+  // raccoon_change - use the active product name in upgrade diagnostics
+  const product = raccoon ? "Raccoon" : "OpenCode"
+  // raccoon_change - use the active command in upgrade diagnostics
+  const command = raccoon ? "raccoon" : "opencode"
   const fs = yield* FileSystem.FileSystem
   const global = yield* Global.Service
   const appProcess = yield* AppProcess.Service
@@ -136,13 +142,15 @@ const make = Effect.gen(function* () {
       .readFileString(path.join(directory, "package.json"))
       .pipe(Effect.flatMap((text) => Effect.try(() => JSON.parse(text))))
     // Source invocations run inside Bun or Node, which may themselves be npm packages.
-    if (!/^@opencode(?:-ai)?\/cli(?:-node)?$/.test(manifest.name)) return
+    // raccoon_change - recognize only the active command's owning npm package
+    if (!(raccoon ? manifest.name === "raccoon-code-cli" : /^@opencode(?:-ai)?\/cli(?:-node)?$/.test(manifest.name))) return
     if (Object.values(manifest.bin ?? {}).some((bin) => path.resolve(directory, bin) === executable))
       return manifest.name
   }).pipe(Effect.orElseSucceed(() => undefined))
 
   const readPolicy = Effect.fnUntraced(function* () {
-    const values = yield* Effect.forEach(["config.json", "opencode.json", "opencode.jsonc"], (name) =>
+    // raccoon_change - read only the active product's update preferences
+    const values = yield* Effect.forEach(["config.json", `${raccoon ? "raccoon" : "opencode"}.json`, `${raccoon ? "raccoon" : "opencode"}.jsonc`], (name) =>
       fs.readFileString(path.join(global.config, name)).pipe(
         Effect.map(decodePolicy),
         Effect.orElseSucceed(() => undefined),
@@ -169,15 +177,17 @@ const make = Effect.gen(function* () {
 
   const curlBinary = path.resolve(
     global.home,
-    ".opencode",
+    // raccoon_change - keep direct binary installations separate
+    raccoon ? ".raccoon" : ".opencode",
     "bin",
-    process.platform === "win32" ? "opencode.exe" : "opencode",
+    // raccoon_change - detect the matching installed command
+    process.platform === "win32" ? `${raccoon ? "raccoon" : "opencode"}.exe` : raccoon ? "raccoon" : "opencode",
   )
 
   const method = Effect.fnUntraced(function* () {
     if (path.resolve(process.execPath) === curlBinary) return "curl"
     const executable = yield* fs.realPath(process.execPath).pipe(Effect.orElseSucceed(() => process.execPath))
-    if (
+    if (!raccoon &&
       ["opencode-beta", "opencode-v2"].some((name) =>
         executable.includes(`${path.sep}Cellar${path.sep}${name}${path.sep}`),
       )
@@ -233,6 +243,33 @@ const make = Effect.gen(function* () {
   }
 
   const release = Effect.fnUntraced(function* (method?: Method) {
+    // raccoon_change start - npm dist-tags are the independent Raccoon update metadata
+    if (raccoon) {
+      const tag = channel === "latest" ? "latest" : channel
+      const response = yield* Effect.tryPromise({
+        try: (signal) => fetch(`https://registry.npmjs.org/raccoon-code-cli/${encodeURIComponent(tag)}`, {
+          signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
+        }),
+        catch: (cause) => new UpgradeError({
+          title: "Could not check for Raccoon updates",
+          detail: errorDetail(cause),
+          retry: "Check your network, then run raccoon upgrade again.",
+        }, { cause }),
+      })
+      if (!response.ok) return yield* Effect.fail(new UpgradeError({
+        title: "Could not check for Raccoon updates",
+        detail: `The npm registry returned HTTP ${response.status}.`,
+        retry: "Try again in a few minutes.",
+      }))
+      const data: unknown = yield* Effect.tryPromise({
+        try: () => response.json(),
+        catch: (cause) => new Error(`Could not read Raccoon release metadata: ${errorDetail(cause)}`),
+      })
+      if (typeof data !== "object" || data === null || !("version" in data) || typeof data.version !== "string")
+        return yield* Effect.fail(new Error("The npm registry returned incomplete Raccoon release metadata"))
+      return { package: "raccoon-code-cli", version: data.version }
+    }
+    // raccoon_change end
     const distribution = method === "brew" ? "homebrew" : "npm"
     const response = yield* Effect.tryPromise({
       try: (signal) =>
@@ -317,10 +354,12 @@ const make = Effect.gen(function* () {
     const failure = (detail: string, cause?: unknown) =>
       new UpgradeError(
         {
-          title: input.title ?? `${installNames[input.method]} could not install OpenCode`,
+          // raccoon_change - report the product that owns the selected package
+          title: input.title ?? `${installNames[input.method]} could not install ${product}`,
           detail,
           command: (input.displayCommand ?? input.command).join(" "),
-          retry: input.retry ?? "Fix the issue above, then run opencode upgrade again.",
+          // raccoon_change - keep retries on the active command
+          retry: input.retry ?? `Fix the issue above, then run ${command} upgrade again.`,
         },
         cause === undefined ? undefined : { cause },
       )
@@ -343,8 +382,11 @@ const make = Effect.gen(function* () {
 
   const upgrade = Effect.fnUntraced(function* (method: Method, input: string) {
     if (!parseReleaseVersion(input)) return yield* Effect.fail(new Error(`Invalid version: ${input}`))
+    // raccoon_change - no Raccoon Homebrew formula exists
+    if (raccoon && method === "brew") return yield* Effect.fail(new Error("Raccoon is not distributed through Homebrew"))
     const version = input.trim().replace(/^v/, "")
-    const packageName = (yield* release(method)).package
+    // raccoon_change - pinned Raccoon upgrades never resolve an OpenCode package
+    const packageName = raccoon ? "raccoon-code-cli" : (yield* release(method)).package
     const target = `${packageName}@${version}`
     if (installedPackage && packageName !== installedPackage && (method === "pnpm" || method === "yarn")) {
       return yield* Effect.fail(new Error(`Reinstall ${target} with ${method} to migrate from ${installedPackage}.`))
@@ -355,7 +397,7 @@ const make = Effect.gen(function* () {
         "npm",
         "install",
         "--global",
-        ...((OPENCODE_ARTIFACT === "cli" && !installedPackage?.endsWith("/cli-node")) ||
+        ...((raccoon || (OPENCODE_ARTIFACT === "cli" && !installedPackage?.endsWith("/cli-node"))) ||
         (installedPackage && packageName !== installedPackage)
           ? ["--force"]
           : []),
@@ -384,6 +426,26 @@ const make = Effect.gen(function* () {
           )
         }
         if (method === "curl") {
+          // raccoon_change start - download the version-matched Raccoon installer from its own npm package
+          if (raccoon) {
+            yield* fs.makeDirectory(global.cache, { recursive: true })
+            const directory = yield* temporaryDirectory("update-")
+            const archive = path.join(directory, "raccoon-code-cli.tgz")
+            yield* runUpgrade({
+              method,
+              command: ["curl", "-fsSL", "-o", archive, `https://registry.npmjs.org/raccoon-code-cli/-/raccoon-code-cli-${version}.tgz`],
+              title: "Could not download the Raccoon installer",
+              retry: "Check your network, then run raccoon upgrade again.",
+            })
+            yield* runUpgrade({ method, command: ["tar", "-xzf", archive, "-C", directory, "package/install"] })
+            return yield* retaining(method, runUpgrade({
+              method,
+              command: ["bash", path.join(directory, "package", "install"), "--raccoon", "--version", version, "--no-modify-path"],
+              displayCommand: ["raccoon", "upgrade", version, "--method", "curl"],
+              title: "The Raccoon installer failed",
+            }))
+          }
+          // raccoon_change end
           yield* fs.makeDirectory(global.cache, { recursive: true })
           const directory = yield* temporaryDirectory("update-")
           const installer = path.join(directory, "install")
@@ -413,9 +475,11 @@ const make = Effect.gen(function* () {
           ? cause
           : new UpgradeError(
               {
-                title: "Could not prepare the OpenCode upgrade",
+                // raccoon_change - keep preparation errors on the active product
+                title: `Could not prepare the ${product} upgrade`,
                 detail: errorDetail(cause),
-                retry: "Fix the issue above, then run opencode upgrade again.",
+                // raccoon_change - keep retries on the active command
+                retry: `Fix the issue above, then run ${command} upgrade again.`,
               },
               { cause },
             ),
@@ -450,7 +514,8 @@ const make = Effect.gen(function* () {
       yield* Effect.logInfo("update check done", { action: "up-to-date" })
       return undefined
     }
-    yield* Effect.logInfo("OpenCode update available", { current, latest: version, action: next })
+    // raccoon_change - name the active product in update logs
+    yield* Effect.logInfo(`${product} update available`, { current, latest: version, action: next })
     return { policy, version }
   })
 
@@ -463,7 +528,8 @@ const make = Effect.gen(function* () {
     const current = yield* Ref.get(installedVersion)
     yield* upgrade(detected, version)
     yield* Ref.set(installedVersion, version)
-    yield* Effect.logInfo("updated OpenCode", { from: current, to: version, method: detected })
+    // raccoon_change - name the active product in update logs
+    yield* Effect.logInfo(`updated ${product}`, { from: current, to: version, method: detected })
     return true
   })
 
@@ -475,7 +541,8 @@ const make = Effect.gen(function* () {
     if (OPENCODE_LOCAL)
       return {
         type: "unavailable" as const,
-        message: "This build runs from a source checkout. Use an installed OpenCode release to check for updates.",
+        // raccoon_change - source check message names the active product
+        message: `This build runs from a source checkout. Use an installed ${product} release to check for updates.`,
       }
     const version = yield* latest()
     if (!parseReleaseVersion(version)) return yield* Effect.fail(new Error(`Invalid version: ${version}`))

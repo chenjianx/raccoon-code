@@ -80,10 +80,12 @@ const findIntegration = Effect.fn("cli.auth.login.integration")(function* (clien
 })
 
 export function loginChoices(integrations: IntegrationInfo[]): IntegrationChoice[] {
+  const raccoon = process.env.RACCOON_CLI === "1" // raccoon_change - recommend Raccoon in its CLI
   return integrations
     .filter((integration) => connectMethods(integration).length > 0)
     .toSorted(
       (a, b) =>
+        (raccoon ? Number(b.id === "raccoon") - Number(a.id === "raccoon") : 0) || // raccoon_change - sort Raccoon first
         Number(b.metadata?.source === "mcp") - Number(a.metadata?.source === "mcp") ||
         (integrationPriority.get(a.id) ?? integrationPriority.size) -
           (integrationPriority.get(b.id) ?? integrationPriority.size) ||
@@ -96,10 +98,11 @@ export function loginChoices(integrations: IntegrationInfo[]): IntegrationChoice
       category:
         integration.metadata?.source === "mcp"
           ? "MCP"
-          : integrationPriority.has(integration.id)
+          : (raccoon && integration.id === "raccoon") || integrationPriority.has(integration.id) // raccoon_change - show Raccoon as popular
             ? "Popular"
             : "Services",
       connected: integration.connections.length > 0,
+      ...(raccoon && integration.id === "raccoon" ? { hint: "recommended" } : {}), // raccoon_change - label Raccoon login
     }))
 }
 
@@ -173,8 +176,8 @@ export const oauthLogin = Effect.fn("cli.auth.login.oauth")(function* (
   )
   progress.stop("Authorization started")
   log.info(attempt.instructions)
-  log.info(attempt.url)
-  if (process.stdin.isTTY && process.stdout.isTTY) yield* openUrl(attempt.url)
+  if (attempt.url) log.info(attempt.url) // raccoon_change - phone sign-in completes without a browser URL
+  if (attempt.url && process.stdin.isTTY && process.stdout.isTTY) yield* openUrl(attempt.url) // raccoon_change - skip browser for direct phone sign-in
 
   if (attempt.mode === "code") {
     yield* requireInteractive("This login requires an interactive terminal to enter the authorization code")

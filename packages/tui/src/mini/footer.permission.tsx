@@ -110,7 +110,9 @@ export function RejectField(props: {
       minHeight={1}
       maxHeight={3}
       wrapMode="word"
-      placeholder="Tell OpenCode what to do differently"
+      placeholder={
+        process.env.RACCOON_CLI === "1" ? "Tell Raccoon what to do differently" : "Tell OpenCode what to do differently"
+      } // raccoon_change - brand permission rejection prompt
       placeholderColor={props.theme.muted}
       textColor={props.theme.formfieldText}
       focusedTextColor={props.theme.formfieldFocusedText}
@@ -321,8 +323,13 @@ export function RunPermissionBody(props: {
           <span style={{ fg: props.theme.permission }}>{props.mono ? "! " : "△ "}</span>
           {title()}
         </text>
+        {/* raccoon_change - brand permission rejection hint */}
         <Show when={!compact() && stage() === "reject"}>
-          <text fg={props.theme.muted}>Tell OpenCode what to do differently</text>
+          <text fg={props.theme.muted}>
+            {process.env.RACCOON_CLI === "1"
+              ? "Tell Raccoon what to do differently"
+              : "Tell OpenCode what to do differently"}
+          </text>
         </Show>
       </box>
 

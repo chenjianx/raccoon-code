@@ -14,6 +14,16 @@ const integration = (value: Partial<IntegrationInfo> & Pick<IntegrationInfo, "id
 })
 
 describe("integrationOptions", () => {
+  // raccoon_change start - recommend Raccoon before other provider integrations
+  test("places Raccoon first in its CLI", () => {
+    expect(
+      integrationOptions(
+        [integration({ id: "openai", name: "OpenAI" }), integration({ id: "raccoon", name: "Raccoon" })],
+        true,
+      ).map((item) => item.id),
+    ).toEqual(["raccoon", "openai"])
+  })
+  // raccoon_change end
   test("keeps popular integrations first and sorts the rest alphabetically", () => {
     expect(
       integrationOptions([

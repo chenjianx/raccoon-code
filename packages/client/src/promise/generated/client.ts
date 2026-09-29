@@ -109,6 +109,8 @@ import type {
   ModelDefaultOutput,
   GenerateTextInput,
   GenerateTextOutput,
+  FimCompleteInput,
+  FimCompleteOutput,
   ProviderListInput,
   ProviderListOutput,
   ProviderGetInput,
@@ -1140,6 +1142,27 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ).then((value) => value.data),
+    },
+    fim: {
+      complete: (input: FimCompleteInput, requestOptions?: RequestOptions): AsyncIterable<FimCompleteOutput> =>
+        sse<FimCompleteOutput>(
+          {
+            method: "POST",
+            path: `/api/fim`,
+            body: {
+              prefix: input["prefix"],
+              suffix: input["suffix"],
+              model: input["model"],
+              language: input["language"],
+              maxTokens: input["maxTokens"],
+              temperature: input["temperature"],
+            },
+            successStatus: 200,
+            declaredStatuses: [400, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
     },
     provider: {
       list: (input?: ProviderListInput, requestOptions?: RequestOptions) =>

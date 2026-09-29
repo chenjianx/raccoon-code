@@ -1,0 +1,1206 @@
+import type {
+  ChatMode,
+  ExtensionToWebview,
+  RaccoonFileSearchItem,
+  RaccoonMessage,
+  RaccoonPluginLanguage,
+  RaccoonPartUpdate,
+  RaccoonState,
+  WebviewToExtension,
+} from "@opencode-ai/raccoon-webview"
+import { MarketplaceService } from "../services/marketplace/index.js"
+import type { McpStatus } from "../services/marketplace/index.js"
+import { SkillMarketplaceService } from "../services/skill-marketplace/index.js"
+import { messageText } from "./message/mapping.js"
+import { createPrompt } from "./editor/editor-prompt.js"
+import { removeSession as removeSessionState } from "./session/session-state.js"
+import { FetchModelsError, fetchOpenAIModels } from "./editor/openai-models.js"
+import { RaccoonStreamScheduler } from "./stream/stream-scheduler.js"
+import { RaccoonEventStream } from "./stream/event-stream.js"
+import { RaccoonEventHandler } from "./stream/event-handler.js"
+import { RaccoonMessageRouter } from "./stream/message-router.js"
+import { RaccoonProviderConfig } from "./config/provider-config.js"
+import { RaccoonRulesConfig } from "./config/rules-config.js"
+import { RaccoonCommandsConfig } from "./config/commands-config.js"
+import { RaccoonSessionController } from "./session/session-controller.js"
+import type {
+  ConnectionPort,
+  ConnectionState,
+  Disposable,
+  DocumentRangeRef,
+  EditorContext,
+  EditorContextAction,
+  Emitter,
+  HostPlatform,
+  RaccoonWebviewSource,
+  WebviewTransport,
+} from "./platform.js"
+
+function imageExtension(filename: string | undefined, mime: string) {
+  const current = filename?.match(/\.[A-Za-z0-9]+$/)?.[0]
+  if (current) return current
+  if (mime === "image/jpeg") return ".jpg"
+  if (mime === "image/gif") return ".gif"
+  if (mime === "image/webp") return ".webp"
+  if (mime === "image/svg+xml") return ".svg"
+  return ".png"
+}
+
+function normalizePluginLanguage(value: string | undefined): RaccoonPluginLanguage {
+  if (value?.toLowerCase().startsWith("zh")) return "zh-Hans"
+  return "en"
+}
+
+type StreamUpdateMessage = Extract<ExtensionToWebview, { type: "partUpdated" | "partsUpdated" }>
+
+function streamUpdateMessage(updates: RaccoonPartUpdate[]): StreamUpdateMessage | undefined {
+  if (updates.length === 0) return
+  if (updates.length > 1) return { type: "partsUpdated", updates }
+  const update = updates[0]
+  if (!update) return
+  return { type: "partUpdated", ...update }
+}
+
+// Subsequence fuzzy match used to filter open editor tabs against the mention query.
+// Empty query matches everything so all open tabs are pinned when the popover first opens.
+function fuzzyMatch(query: string, target: string): boolean {
+  const q = query.trim().replaceAll("\\", "/").toLowerCase()
+  if (!q) return true
+  const t = target.toLowerCase()
+  if (t.includes(q)) return true
+  let index = -1
+  for (const char of q) {
+    index = t.indexOf(char, index + 1)
+    if (index === -1) return false
+  }
+  return true
+}
+
+export class RaccoonProvider {
+  static readonly viewType = "raccoon.chat"
+
+  private readonly didChangeState: Emitter<void>
+  private eventRefreshTimer?: ReturnType<typeof setTimeout>
+  private unsubscribeState?: () => void
+  private readonly autocompleteConfigListener: Disposable
+  private readonly streams = new RaccoonStreamScheduler((message) => this.postStreamMessage(message))
+  private readonly webviewHost: WebviewTransport
+  private readonly eventStream: RaccoonEventStream
+  private readonly eventHandler: RaccoonEventHandler
+  private readonly messageRouter: RaccoonMessageRouter
+  private readonly config: RaccoonProviderConfig
+  private readonly rules: RaccoonRulesConfig
+  private readonly commands: RaccoonCommandsConfig
+  private readonly sessions: RaccoonSessionController
+  private readonly marketplace: MarketplaceService
+  private readonly skillMarketplace: SkillMarketplaceService
+  private state: RaccoonState = {
+    sessions: [],
+    messages: [],
+    agents: [],
+    models: [],
+    providers: [],
+    mode: "build",
+    loading: true,
+    pluginLanguageMode: "auto",
+    pluginLanguage: "en",
+    autocompleteEnabled: true,
+  }
+
+  constructor(
+    private readonly connection: ConnectionPort,
+    private readonly platform: HostPlatform,
+    transport: WebviewTransport,
+  ) {
+    this.webviewHost = transport
+    this.marketplace = new MarketplaceService((message) => this.platform.ui.showInfo(message))
+    this.skillMarketplace = new SkillMarketplaceService((message) => this.platform.ui.showInfo(message))
+    this.state = {
+      ...this.state,
+      pluginLanguage: normalizePluginLanguage(this.platform.env.locale()),
+      autocompleteEnabled: this.platform.settings.getAutocompleteEnabled(),
+    }
+    this.didChangeState = this.platform.createEmitter<void>()
+    this.unsubscribeState = this.connection.onStateChange((state) => this.onConnectionState(state))
+    this.autocompleteConfigListener = this.platform.settings.onAutocompleteEnabledChange((enabled) => {
+      if (enabled === this.state.autocompleteEnabled) return
+      this.state = { ...this.state, autocompleteEnabled: enabled }
+      this.post()
+    })
+    this.webviewHost.onMessage((message, source) => void this.handle(message, source))
+    this.config = new RaccoonProviderConfig({
+      client: () => this.client(),
+      directory: () => this.directory(),
+      getState: () => this.state,
+      setState: (state) => {
+        this.state = state
+      },
+      post: () => this.post(),
+      refresh: () => this.refresh(),
+      withLoading: (run) => this.withLoading(run),
+      storage: this.platform.storage,
+      webviewHost: this.webviewHost,
+      openExternal: (url) => this.platform.ui.openExternal(url),
+      promptInput: (options) => this.platform.ui.promptInput(options),
+      pluginLanguage: () => normalizePluginLanguage(this.platform.env.locale()),
+    })
+    this.state = { ...this.state, ...this.config.initialState() }
+    this.rules = new RaccoonRulesConfig({
+      client: () => this.client(),
+      directory: () => this.directory(),
+      refresh: () => this.refresh(),
+    })
+    this.commands = new RaccoonCommandsConfig({
+      client: () => this.client(),
+      directory: () => this.directory(),
+      refresh: () => this.refresh(),
+    })
+    this.sessions = new RaccoonSessionController({
+      client: () => this.client(),
+      directory: () => this.directory(),
+      getState: () => this.state,
+      setState: (state) => {
+        this.state = state
+      },
+      post: () => this.post(),
+      withLoading: (run) => this.withLoading(run),
+      ensureEventStream: () => this.ensureEventStream(),
+      loadModels: (client) => this.config.loadModels(client),
+      removeSession: (sessionID) => this.removeSession(sessionID),
+      report: (error) => this.report(error),
+      log: (message) => this.platform.ui.log(message),
+      saveFile: (options) => this.platform.ui.saveFile(options),
+      captureTerminal: () => this.platform.editor.terminalContext(),
+      config: this.config,
+      streams: this.streams,
+      webviewHost: this.webviewHost,
+    })
+    this.eventHandler = new RaccoonEventHandler({
+      directory: () => this.directory(),
+      getState: () => this.state,
+      setState: (state) => {
+        this.state = state
+      },
+      post: () => this.post(),
+      removeSession: (sessionID) => this.removeSession(sessionID),
+      scheduleSessionRefresh: () => this.scheduleSessionRefresh(),
+      pushPartDelta: (sessionID, messageID, partID, field, delta) =>
+        this.pushPartDelta(sessionID, messageID, partID, field, delta),
+      pushSubAgentPartDelta: (sessionID, messageID, partID, field, delta) =>
+        this.pushSubAgentPartDelta(sessionID, messageID, partID, field, delta),
+      flushStreams: () => this.streams.flush(),
+      clearPromptRefresh: (sessionID) => this.sessions.clearPromptRefresh(sessionID),
+      recoverPendingQuestions: (sessionID) => this.sessions.recoverPendingQuestions(sessionID),
+      scheduleEventRefresh: () => this.scheduleEventRefresh(),
+      scheduleSubAgentRefresh: (sessionID) => this.sessions.scheduleSubAgentRefresh(sessionID),
+      isTrackedSubAgent: (sessionID) => this.sessions.isTrackedSubAgent(sessionID),
+      completeTrackedSubAgent: (sessionID) => this.sessions.completeTrackedSubAgent(sessionID),
+      refreshMcpInstalled: () => this.refreshMcpInstalled(),
+      postMessage: (message) => this.webviewHost.post("chat", message),
+      postSubAgentEvent: (sessionID, message) => this.sessions.postSubAgentEvent(sessionID, message),
+      onReauthRequired: () => this.handleReauthRequired(),
+    })
+    this.eventStream = new RaccoonEventStream(
+      () => this.client(),
+      (event) => this.eventHandler.handleGlobal(event),
+      (message) => this.platform.ui.log(message),
+      () => this.scheduleEventRefresh(),
+    )
+    this.messageRouter = new RaccoonMessageRouter({
+      markReady: (source) => this.webviewHost.markReady(source),
+      postState: () => this.post(),
+      createSession: (mode) => this.createSession(mode),
+      refresh: () => this.refresh(),
+      openHistory: () => this.openHistory(),
+      searchSessions: (query) => this.sessions.loadHistory(query),
+      loadMoreSessions: () => this.sessions.loadMoreHistory(),
+      loadOlderMessages: (sessionID) => this.sessions.loadOlderMessages(sessionID),
+      requestContextInspector: (message, source) => this.sessions.requestContextInspector(message, source),
+      openSettings: () => this.openSettings(),
+      closeSettings: () => this.webviewHost.closeSettings(),
+      selectSession: (sessionID) => this.selectSession(sessionID),
+      openSubAgent: (sessionID, title) => this.sessions.openSubAgent(sessionID, title),
+      closeSubAgent: () => this.sessions.closeSubAgent(),
+      renameSession: (sessionID, title) => this.renameSession(sessionID, title),
+      deleteSession: (sessionID) => this.deleteSession(sessionID),
+      exportSession: (sessionID) => this.exportSession(sessionID),
+      revertSession: (sessionID, messageID, source) => this.sessions.revertSession(sessionID, messageID, source),
+      unrevertSession: (sessionID, source) => this.sessions.unrevertSession(sessionID, source),
+      runSlashCommand: (name, source) => this.sessions.runSlashCommand(name, source),
+      setMode: (mode) => this.config.setMode(mode),
+      setPluginLanguage: (language) => this.config.setPluginLanguage(language),
+      setAutocompleteEnabled: (enabled) => this.setAutocompleteEnabled(enabled),
+      setModel: (model) => this.config.setModel(model),
+      setModeModel: (mode, model) => this.config.setModeModel(mode, model),
+      saveSettings: (message, source) => this.saveSettings(message, source),
+      setModelEnabled: (model, enabled) => this.config.setModelEnabled(model, enabled),
+      setProviderEnabled: (providerID, enabled) => this.config.setProviderEnabled(providerID, enabled),
+      loginRaccoon: (message, source) => this.config.loginRaccoon(message, source),
+      cancelRaccoonLogin: () => this.config.cancelRaccoonLogin(),
+      logoutRaccoon: () => this.logoutRaccoon(),
+      configureProvider: (providerID, apiKey) => this.config.configureProvider(providerID, apiKey),
+      configureAgent: (message, source) => this.configureAgent(message, source),
+      deleteAgent: (message, source) => this.deleteAgent(message, source),
+      saveRule: (message, source) =>
+        this.runSettingsAction(source, "ruleSaveResult", message.requestID, () => this.rules.saveRule(message)),
+      toggleRule: (message, source) =>
+        this.runSettingsAction(source, "ruleToggleResult", message.requestID, () =>
+          this.rules.toggleRule(message.scope, message.name, message.enabled),
+        ),
+      deleteRule: (message, source) =>
+        this.runSettingsAction(source, "ruleDeleteResult", message.requestID, () =>
+          this.rules.deleteRule(message.scope, message.name),
+        ),
+      saveCommand: (message, source) =>
+        this.runSettingsAction(source, "commandSaveResult", message.requestID, () => this.commands.saveCommand(message)),
+      deleteCommand: (message, source) =>
+        this.runSettingsAction(source, "commandDeleteResult", message.requestID, () =>
+          this.commands.deleteCommand(message.scope, message.name),
+        ),
+      connectProvider: (message) => this.config.connectProvider(message),
+      cancelProviderConnect: (providerID) => this.config.cancelProviderConnect(providerID),
+      disconnectProvider: (providerID) => this.config.disconnectProvider(providerID),
+      fetchCustomProviderModels: (message, source) => this.fetchCustomProviderModels(message, source),
+      fetchMcpMarketplace: (force, source) => this.fetchMcpMarketplace(force, source),
+      fetchSkillMarketplace: (force, source) => this.fetchSkillMarketplace(force, source),
+      installMcpMarketplaceItem: (message, source) => this.installMcpMarketplaceItem(message, source),
+      removeMcpMarketplaceItem: (message, source) => this.removeMcpMarketplaceItem(message, source),
+      installSkillMarketplaceItem: (message, source) => this.installSkillMarketplaceItem(message, source),
+      removeSkillMarketplaceItem: (message, source) => this.removeSkillMarketplaceItem(message, source),
+      addMcpServerManual: (message, source) => this.addMcpServerManual(message, source),
+      fetchMcpInstalled: (source) => this.fetchMcpInstalled(source),
+      fetchSkillInstalled: (source) => this.fetchSkillInstalled(source),
+      setMcpServerEnabled: (message, source) => this.setMcpServerEnabled(message, source),
+      connectMcpServer: (message, source) => this.connectMcpServer(message, source),
+      disconnectMcpServer: (message, source) => this.disconnectMcpServer(message, source),
+      removeMcpServer: (message, source) => this.removeMcpServer(message, source),
+      updateMcpServer: (message, source) => this.updateMcpServer(message, source),
+      configureCustomProvider: (message) => this.config.configureCustomProvider(message),
+      requestFileSearch: (requestID, query, kind) => this.requestFileSearch(requestID, query, kind),
+      openFile: (filePath, line, column) => this.openFile(filePath, line, column),
+      openImage: (url, filename, mime) => this.openImage(url, filename, mime),
+      requestTerminalContext: (requestID, source) => this.requestTerminalContext(requestID, source),
+      requestGitChangesContext: (requestID, source) => this.requestGitChangesContext(requestID, source),
+      questionReply: (message) => this.sessions.questionReply(message),
+      questionReject: (message) => this.sessions.questionReject(message),
+      permissionReply: (message) => this.sessions.permissionReply(message),
+      deleteCustomProvider: (providerID) => this.config.deleteCustomProvider(providerID),
+      stopSession: () => this.sessions.stopSession(),
+      sendMessage: (sessionID, text, mode, model, files) =>
+        this.sessions.sendMessage(sessionID, text, mode, model, files),
+    })
+  }
+
+  async createSession(mode: ChatMode = this.state.mode) {
+    await this.sessions.createSession(mode)
+  }
+
+  async refresh() {
+    await this.sessions.refresh()
+    this.state = { ...this.state, serverUrl: this.connection.getServerConfig()?.baseUrl, directory: this.directory() }
+    this.post()
+  }
+
+  private reauthInFlight = false
+  private async handleReauthRequired() {
+    if (this.reauthInFlight) return
+    const connected = this.state.providers.some((entry) => entry.id === "raccoon" && entry.connected)
+    if (!connected) return
+    this.reauthInFlight = true
+    try {
+      await this.config.logoutRaccoon()
+      await this.refresh()
+    } catch (error) {
+      this.report(error)
+    } finally {
+      this.reauthInFlight = false
+    }
+  }
+
+  // Manual sign-out from the settings panel: close the standalone settings tab so the
+  // user isn't left staring at a login form inside a "Raccoon Settings" tab, then
+  // refresh so the sidebar falls back to the login screen.
+  async logoutRaccoon() {
+    await this.withLoading(async () => {
+      await this.config.logoutRaccoon()
+      this.webviewHost.closeSettings()
+      await this.refresh()
+    })
+  }
+
+  async selectSession(sessionID: string) {
+    await this.sessions.selectSession(sessionID)
+  }
+
+  async renameSession(sessionID: string, title: string) {
+    await this.sessions.renameSession(sessionID, title)
+  }
+
+  async deleteSession(sessionID: string) {
+    await this.sessions.deleteSession(sessionID)
+  }
+
+  async exportSession(sessionID: string) {
+    await this.sessions.exportSession(sessionID)
+  }
+
+  private async requestFileSearch(requestID: string, query: string, kind?: "file" | "folder") {
+    const directory = this.directory()
+    const items = this.pinOpenFiles(await this.searchFiles(query, kind), query, kind)
+    this.webviewHost.post("chat", {
+      type: "fileSearchResult",
+      requestID,
+      items,
+      workspaceDir: directory,
+    })
+  }
+
+  // Search via the opencode backend (ripgrep cache + fuzzysort); fall back to the host's
+  // native editor search when the backend is unavailable (e.g. still connecting).
+  private async searchFiles(query: string, kind?: "file" | "folder"): Promise<RaccoonFileSearchItem[]> {
+    try {
+      const client = await this.client()
+      const directory = this.directory()
+      const result = await client.file.find({ location: { directory }, query, type: kind === "folder" ? "directory" : kind, limit: 100 })
+      return result.data.map((entry) => ({ path: entry.path, type: entry.type === "directory" ? "folder" as const : "file" as const }))
+    } catch {
+      const result = await this.platform.editor.searchFiles(query, kind)
+      return result.items
+    }
+  }
+
+  // Promote open editor tabs (active file first) to the top of the result list. Open files
+  // are treated as an independent candidate source: any tab whose path fuzzy-matches the
+  // query is included, even if the backend didn't return it (limit or ranking cutoff).
+  private pinOpenFiles(
+    items: RaccoonFileSearchItem[],
+    query: string,
+    kind?: "file" | "folder",
+  ): RaccoonFileSearchItem[] {
+    if (kind === "folder") return items
+    const openFiles = this.platform.editor.getOpenFiles?.() ?? []
+    if (!openFiles.length) return items
+    const active = openFiles[0]
+    const matched = openFiles.filter((path) => fuzzyMatch(query, path))
+    if (!matched.length) return items
+    const ordered = active && matched.includes(active) ? [active, ...matched.filter((p) => p !== active)] : matched
+    const pinned = new Set(ordered)
+    return [
+      ...ordered.map((path) => ({ path, type: "opened-file" as const })),
+      ...items.filter((item) => !pinned.has(item.path)),
+    ]
+  }
+
+  async openHistory() {
+    await this.sessions.openHistory()
+  }
+
+  async openSettings() {
+    // Opening settings must not refresh(): refresh() runs loadMessages through
+    // withLoading (loading:true→false) and fans postState to the chat webview,
+    // making the chat surface flash. The settings panel fetches its own data on
+    // webviewReady (postState, not refresh).
+    this.sessions.openSettings()
+  }
+
+  async appendEditorContext() {
+    const context = this.platform.editor.getActiveContext()
+    if (!context) return
+    await this.appendContext(context)
+  }
+
+  async appendDocumentRangeContext(ref: DocumentRangeRef) {
+    const context = await this.platform.editor.getRangeContext(ref)
+    if (!context) return
+    await this.appendContext(context)
+  }
+
+  private async appendContext(context: EditorContext) {
+    await this.platform.ui.revealChat()
+    this.webviewHost.post("chat", {
+      type: "appendPrompt",
+      text: createPrompt("ADD_TO_CONTEXT", context, this.state.pluginLanguage),
+      replace: false,
+    })
+  }
+
+  async sendEditorContext(type: EditorContextAction) {
+    const context = this.platform.editor.getActiveContext()
+    if (!context) return
+    await this.sendContextPrompt(type, context)
+  }
+
+  async sendDocumentRangeContext(type: EditorContextAction, ref: DocumentRangeRef) {
+    const context = await this.platform.editor.getRangeContext(ref)
+    if (!context) return
+    await this.sendContextPrompt(type, context)
+  }
+
+  private async sendContextPrompt(type: EditorContextAction, context: EditorContext) {
+    await this.platform.ui.revealChat()
+    if (!this.state.activeSessionID) {
+      await this.sessions.createSession(this.state.mode)
+    }
+    await this.sessions.sendMessage(
+      this.state.activeSessionID,
+      createPrompt(type, context, this.state.pluginLanguage),
+      this.state.mode,
+      this.state.selectedModel,
+    )
+  }
+
+  async setAutocompleteEnabled(enabled: boolean) {
+    await this.platform.settings.setAutocompleteEnabled(enabled)
+    this.state = { ...this.state, autocompleteEnabled: enabled }
+    this.post()
+  }
+
+  private async saveSettings(
+    message: Extract<WebviewToExtension, { type: "saveSettings" }>,
+    source: RaccoonWebviewSource,
+  ) {
+    try {
+      if (message.settings.defaultModel) await this.config.setModel(message.settings.defaultModel)
+      if (message.settings.modeModels) {
+        for (const [mode, model] of Object.entries(message.settings.modeModels)) {
+          await this.config.setModeModel(mode as ChatMode, model)
+        }
+      }
+      if (message.settings.pluginLanguageMode !== undefined) {
+        await this.config.setPluginLanguage(message.settings.pluginLanguageMode)
+      }
+      if (message.settings.autocompleteEnabled !== undefined) {
+        await this.setAutocompleteEnabled(message.settings.autocompleteEnabled)
+      }
+      this.webviewHost.post(source, { type: "settingsSaveResult", requestID: message.requestID, success: true })
+    } catch (error) {
+      this.webviewHost.post(source, {
+        type: "settingsSaveResult",
+        requestID: message.requestID,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  private async configureAgent(
+    message: Extract<WebviewToExtension, { type: "configureAgent" }>,
+    source: RaccoonWebviewSource,
+  ) {
+    try {
+      const saved = await this.config.configureAgent(message)
+      this.webviewHost.post(source, {
+        type: "agentSaveResult",
+        requestID: message.requestID,
+        success: true,
+        ...saved,
+      })
+    } catch (error) {
+      this.webviewHost.post(source, {
+        type: "agentSaveResult",
+        requestID: message.requestID,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  private async deleteAgent(
+    message: Extract<WebviewToExtension, { type: "deleteAgent" }>,
+    source: RaccoonWebviewSource,
+  ) {
+    try {
+      await this.config.deleteAgent(message.name, message.scope)
+      this.webviewHost.post(source, { type: "agentDeleteResult", requestID: message.requestID, success: true })
+    } catch (error) {
+      this.webviewHost.post(source, {
+        type: "agentDeleteResult",
+        requestID: message.requestID,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  private async runSettingsAction(
+    source: RaccoonWebviewSource,
+    type: "ruleSaveResult" | "ruleToggleResult" | "ruleDeleteResult" | "commandSaveResult" | "commandDeleteResult",
+    requestID: string,
+    action: () => Promise<void>,
+  ) {
+    try {
+      await action()
+      this.webviewHost.post(source, { type, requestID, success: true })
+    } catch (error) {
+      this.webviewHost.post(source, {
+        type,
+        requestID,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  getState() {
+    return this.state
+  }
+
+  onDidChangeState(listener: () => void) {
+    return this.didChangeState.event(listener)
+  }
+
+  private async handle(message: WebviewToExtension, source: RaccoonWebviewSource) {
+    try {
+      await this.messageRouter.handle(message, source)
+    } catch (error) {
+      this.report(error)
+    }
+  }
+
+  private async requestTerminalContext(requestID: string, source: RaccoonWebviewSource) {
+    try {
+      this.webviewHost.post(source, {
+        type: "terminalContextResult",
+        requestID,
+        content: await this.platform.editor.terminalContext(),
+      } satisfies ExtensionToWebview)
+    } catch (error) {
+      this.webviewHost.post(source, {
+        type: "terminalContextError",
+        requestID,
+        error: error instanceof Error ? error.message : String(error),
+      } satisfies ExtensionToWebview)
+    }
+  }
+
+  private async requestGitChangesContext(requestID: string, source: RaccoonWebviewSource) {
+    try {
+      this.webviewHost.post(source, {
+        type: "gitChangesContextResult",
+        requestID,
+        content: await this.platform.editor.gitChangesContext(this.directory()),
+      } satisfies ExtensionToWebview)
+    } catch (error) {
+      this.webviewHost.post(source, {
+        type: "gitChangesContextError",
+        requestID,
+        error: error instanceof Error ? error.message : String(error),
+      } satisfies ExtensionToWebview)
+    }
+  }
+
+  private async client() {
+    return this.connection.getClientAsync(this.directory())
+  }
+
+  private async ensureEventStream() {
+    await this.eventStream.ensure(this.directory())
+  }
+
+  private async stopEventStream() {
+    this.sessions.clearEventRefreshTimer()
+    await this.eventStream.stop()
+  }
+
+  private scheduleEventRefresh() {
+    this.sessions.scheduleEventRefresh()
+  }
+
+  private scheduleSessionRefresh() {
+    if (this.eventRefreshTimer) return
+    this.eventRefreshTimer = setTimeout(() => {
+      this.eventRefreshTimer = undefined
+      void this.sessions.refreshSessionList()
+    }, 80)
+  }
+
+  private removeSession(sessionID: string) {
+    this.sessions.removeHistorySession(sessionID)
+    const next = removeSessionState(
+      this.state.sessions,
+      this.state.activeSessionID,
+      this.state.activeSession,
+      this.state.messages,
+      sessionID,
+    )
+    this.state = {
+      ...this.state,
+      ...next,
+      historySessions: this.state.historySessions?.filter((session) => session.id !== sessionID),
+    }
+  }
+
+  private appendPartDelta(messageID: string, partID: string, field: string, delta: string) {
+    if (field !== "text" && field !== "reasoning") return
+    const current = this.state.messages.find((message) => message.id === messageID)
+    const message: RaccoonMessage = current ?? { id: messageID, role: "assistant", text: "", parts: [], createdAt: Date.now() }
+    const part = message.parts.find((item) => item.id === partID)
+    const parts: RaccoonMessage["parts"] = part
+      ? message.parts.map((item) => item.id === partID ? { ...item, text: `${item.text ?? ""}${delta}` } : item)
+      : [...message.parts, { id: partID, type: field, text: delta }]
+    this.state = {
+      ...this.state,
+      messages: [...this.state.messages.filter((item) => item.id !== messageID), { ...message, parts, text: messageText(parts) }],
+    }
+  }
+
+  private postStreamMessage(message: ExtensionToWebview) {
+    if (message.type !== "partUpdated" && message.type !== "partsUpdated") {
+      this.webviewHost.post("chat", message)
+      return
+    }
+    const updates = message.type === "partUpdated" ? [message] : message.updates
+    const main = streamUpdateMessage(updates.filter((update) => update.sessionID === this.state.activeSessionID))
+    if (main) this.webviewHost.post("chat", main)
+    const subAgentSessionIDs = new Set(
+      updates.map((update) => update.sessionID).filter((sessionID) => this.sessions.isTrackedSubAgent(sessionID)),
+    )
+    subAgentSessionIDs.forEach((sessionID) => {
+      const subAgent = streamUpdateMessage(updates.filter((update) => update.sessionID === sessionID))
+      if (subAgent) this.sessions.postSubAgentEvent(sessionID, subAgent)
+    })
+  }
+
+  private pushPartDelta(sessionID: string, messageID: string, partID: string, field: string, delta: string) {
+    this.appendPartDelta(messageID, partID, field, delta)
+    if (field !== "text" && field !== "reasoning") return
+    this.streams.push({
+      sessionID,
+      messageID,
+      part: { id: partID, type: field, text: "" },
+      delta: {
+        type: "text-delta",
+        textDelta: delta,
+      },
+    })
+  }
+
+  private pushSubAgentPartDelta(sessionID: string, messageID: string, partID: string, field: string, delta: string) {
+    if (field !== "text" && field !== "reasoning") return
+    this.streams.push({
+      sessionID,
+      messageID,
+      part: { id: partID, type: field, text: "" },
+      delta: {
+        type: "text-delta",
+        textDelta: delta,
+      },
+    })
+  }
+
+  private directory() {
+    return this.platform.workspace.directory()
+  }
+
+  private openFile(filePath: string, line?: number, column?: number) {
+    this.platform.ui.openFile(filePath, this.directory(), line, column)
+  }
+
+  private async openImage(url: string, filename?: string, mime?: string) {
+    try {
+      if (url.startsWith("file://")) {
+        await this.platform.ui.openPath(url)
+        return
+      }
+
+      if (!url.startsWith("data:")) return
+
+      const match = url.match(/^data:([^;,]+)?(?:;base64)?,(.*)$/)
+      if (!match) return
+
+      const mediaType = mime ?? match[1] ?? "image/png"
+      const extension = imageExtension(filename, mediaType)
+      const safeName = (filename ?? `raccoon-image-${Date.now()}${extension}`).replace(/[\\/:"*?<>|]+/g, "-")
+      const data = Buffer.from(decodeURIComponent(match[2] ?? ""), url.includes(";base64,") ? "base64" : "utf8")
+      const absolutePath = await this.platform.fs.writeTempFile(
+        ["image-preview", safeName.includes(".") ? safeName : `${safeName}${extension}`],
+        data,
+      )
+      await this.platform.ui.openPath(absolutePath)
+    } catch (error) {
+      this.platform.ui.log(`Failed to open image: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  private async withLoading(run: () => Promise<void>) {
+    this.state = { ...this.state, loading: true, busy: true, error: undefined }
+    this.post()
+    await run()
+  }
+
+  private post() {
+    this.streams.flush()
+    this.didChangeState.fire()
+    this.webviewHost.postState(this.state)
+  }
+
+  private async fetchCustomProviderModels(
+    message: Extract<WebviewToExtension, { type: "fetchCustomProviderModels" }>,
+    source: RaccoonWebviewSource,
+  ) {
+    try {
+      const models = await fetchOpenAIModels({
+        baseURL: message.baseURL.trim(),
+        apiKey: message.apiKey?.trim() || undefined,
+        headers: message.headers,
+      })
+      this.webviewHost.post(source, {
+        type: "customProviderModelsFetched",
+        requestID: message.requestID,
+        models,
+      } satisfies ExtensionToWebview)
+    } catch (error) {
+      this.webviewHost.post(source, {
+        type: "customProviderModelsFetched",
+        requestID: message.requestID,
+        error: error instanceof Error ? error.message : "Failed to fetch models",
+        auth: error instanceof FetchModelsError && error.auth,
+      } satisfies ExtensionToWebview)
+    }
+  }
+
+  private async fetchMcpMarketplace(force: boolean | undefined, source: RaccoonWebviewSource) {
+    this.state = {
+      ...this.state,
+      mcpMarketplace: {
+        items: this.state.mcpMarketplace?.items ?? [],
+        installed: this.state.mcpMarketplace?.installed ?? { project: {}, user: {} },
+        loading: true,
+        errors: undefined,
+        lastFetchedAt: this.state.mcpMarketplace?.lastFetchedAt,
+      },
+    }
+    this.post()
+    try {
+      const data = await this.marketplace.fetchData(await this.client(), this.directory(), force)
+      this.state = {
+        ...this.state,
+        mcpMarketplace: {
+          items: data.items,
+          installed: data.installed,
+          loading: false,
+          errors: data.errors,
+          lastFetchedAt: Date.now(),
+        },
+      }
+      this.post()
+      this.webviewHost.post(source, { type: "mcpMarketplaceData", ...data } satisfies ExtensionToWebview)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const mcpMarketplace = {
+        items: this.state.mcpMarketplace?.items ?? [],
+        installed: this.state.mcpMarketplace?.installed ?? { project: {}, user: {} },
+        loading: false,
+        errors: [message],
+        lastFetchedAt: this.state.mcpMarketplace?.lastFetchedAt,
+      }
+      this.state = {
+        ...this.state,
+        mcpMarketplace,
+      }
+      this.post()
+      this.webviewHost.post(source, {
+        type: "mcpMarketplaceData",
+        items: mcpMarketplace.items,
+        installed: mcpMarketplace.installed,
+        errors: [message],
+      } satisfies ExtensionToWebview)
+    }
+  }
+
+  private async installMcpMarketplaceItem(
+    message: Extract<WebviewToExtension, { type: "installMcpMarketplaceItem" }>,
+    source: RaccoonWebviewSource,
+  ) {
+    try {
+      const result = await this.marketplace.install(
+        await this.client(),
+        this.directory(),
+        message.item,
+        message.options,
+      )
+      this.webviewHost.post(source, { type: "mcpMarketplaceInstallResult", ...result } satisfies ExtensionToWebview)
+      if (!result.success) return
+      await this.refresh()
+      await this.fetchMcpMarketplace(false, source)
+    } catch (error) {
+      this.webviewHost.post(source, {
+        type: "mcpMarketplaceInstallResult",
+        id: message.item.id,
+        scope: message.options.scope,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      } satisfies ExtensionToWebview)
+    }
+  }
+
+  private async removeMcpMarketplaceItem(
+    message: Extract<WebviewToExtension, { type: "removeMcpMarketplaceItem" }>,
+    source: RaccoonWebviewSource,
+  ) {
+    try {
+      const result = await this.marketplace.remove(await this.client(), this.directory(), message.item, message.scope)
+      this.webviewHost.post(source, { type: "mcpMarketplaceRemoveResult", ...result } satisfies ExtensionToWebview)
+      if (!result.success) return
+      await this.refresh()
+      await this.fetchMcpMarketplace(false, source)
+    } catch (error) {
+      this.webviewHost.post(source, {
+        type: "mcpMarketplaceRemoveResult",
+        id: message.item.id,
+        scope: message.scope,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      } satisfies ExtensionToWebview)
+    }
+  }
+
+  private async fetchSkillMarketplace(_force: boolean | undefined, source: RaccoonWebviewSource) {
+    this.state = {
+      ...this.state,
+      skillMarketplace: {
+        sources: this.state.skillMarketplace?.sources ?? [],
+        items: this.state.skillMarketplace?.items ?? [],
+        installed: this.state.skillMarketplace?.installed ?? { project: {}, user: {} },
+        loading: true,
+        errors: undefined,
+        lastFetchedAt: this.state.skillMarketplace?.lastFetchedAt,
+      },
+    }
+    this.post()
+    try {
+      const data = await this.skillMarketplace.fetchData(await this.client(), this.directory())
+      this.state = {
+        ...this.state,
+        skillMarketplace: {
+          sources: data.sources,
+          items: data.items,
+          installed: data.installed,
+          loading: false,
+          errors: data.errors,
+          lastFetchedAt: Date.now(),
+        },
+      }
+      this.post()
+      this.webviewHost.post(source, { type: "skillMarketplaceData", ...data } satisfies ExtensionToWebview)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const skillMarketplace = {
+        sources: this.state.skillMarketplace?.sources ?? [],
+        items: this.state.skillMarketplace?.items ?? [],
+        installed: this.state.skillMarketplace?.installed ?? { project: {}, user: {} },
+        loading: false,
+        errors: [message],
+        lastFetchedAt: this.state.skillMarketplace?.lastFetchedAt,
+      }
+      this.state = {
+        ...this.state,
+        skillMarketplace,
+      }
+      this.post()
+      this.webviewHost.post(source, {
+        type: "skillMarketplaceData",
+        sources: skillMarketplace.sources,
+        items: skillMarketplace.items,
+        installed: skillMarketplace.installed,
+        errors: [message],
+      } satisfies ExtensionToWebview)
+    }
+  }
+
+  private async installSkillMarketplaceItem(
+    message: Extract<WebviewToExtension, { type: "installSkillMarketplaceItem" }>,
+    source: RaccoonWebviewSource,
+  ) {
+    try {
+      const result = await this.skillMarketplace.install(
+        await this.client(),
+        this.directory(),
+        message.item,
+        message.options,
+      )
+      this.webviewHost.post(source, { type: "skillMarketplaceInstallResult", ...result } satisfies ExtensionToWebview)
+      if (!result.success) return
+      await this.refresh()
+      await this.fetchSkillMarketplace(false, source)
+      await this.fetchSkillInstalled(source)
+    } catch (error) {
+      this.webviewHost.post(source, {
+        type: "skillMarketplaceInstallResult",
+        id: message.item.id,
+        scope: message.options.scope,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      } satisfies ExtensionToWebview)
+    }
+  }
+
+  private async removeSkillMarketplaceItem(
+    message: Extract<WebviewToExtension, { type: "removeSkillMarketplaceItem" }>,
+    source: RaccoonWebviewSource,
+  ) {
+    try {
+      const result = await this.skillMarketplace.remove(
+        await this.client(),
+        this.directory(),
+        message.item,
+        message.scope,
+      )
+      this.webviewHost.post(source, { type: "skillMarketplaceRemoveResult", ...result } satisfies ExtensionToWebview)
+      if (!result.success) return
+      await this.refresh()
+      await this.fetchSkillMarketplace(false, source)
+      await this.fetchSkillInstalled(source)
+    } catch (error) {
+      this.webviewHost.post(source, {
+        type: "skillMarketplaceRemoveResult",
+        id: message.item.id,
+        scope: message.scope,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      } satisfies ExtensionToWebview)
+    }
+  }
+
+  private async addMcpServerManual(
+    message: Extract<WebviewToExtension, { type: "addMcpServerManual" }>,
+    source: RaccoonWebviewSource,
+  ) {
+    try {
+      const result = await this.marketplace.installManual(await this.client(), this.directory(), {
+        id: message.id,
+        config: message.config,
+        scope: message.scope,
+      })
+      this.webviewHost.post(source, { type: "mcpManualAddResult", ...result } satisfies ExtensionToWebview)
+      if (!result.success) return
+      await this.refresh()
+      await this.fetchMcpMarketplace(false, source)
+    } catch (error) {
+      this.webviewHost.post(source, {
+        type: "mcpManualAddResult",
+        id: message.id,
+        scope: message.scope,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      } satisfies ExtensionToWebview)
+    }
+  }
+
+  private async fetchSkillInstalled(source: RaccoonWebviewSource) {
+    this.state = {
+      ...this.state,
+      skillInstalled: {
+        skills: this.state.skillInstalled?.skills ?? [],
+        loading: true,
+        error: undefined,
+      },
+    }
+    this.post()
+    try {
+      const skills = await this.skillMarketplace.listInstalled(await this.client(), this.directory())
+      this.state = {
+        ...this.state,
+        skillInstalled: {
+          skills,
+          loading: false,
+        },
+      }
+      this.post()
+      this.webviewHost.post(source, { type: "skillInstalledData", skills } satisfies ExtensionToWebview)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const skills = this.state.skillInstalled?.skills ?? []
+      this.state = {
+        ...this.state,
+        skillInstalled: {
+          skills,
+          loading: false,
+          error: message,
+        },
+      }
+      this.post()
+      this.webviewHost.post(source, {
+        type: "skillInstalledData",
+        skills,
+        error: message,
+      } satisfies ExtensionToWebview)
+    }
+  }
+
+  private async fetchMcpInstalled(source: RaccoonWebviewSource) {
+    this.state = {
+      ...this.state,
+      mcpInstalled: {
+        servers: this.state.mcpInstalled?.servers ?? [],
+        loading: true,
+        error: undefined,
+      },
+    }
+    this.post()
+    try {
+      const withStatus = await this.loadMcpInstalled()
+      this.state = {
+        ...this.state,
+        mcpInstalled: { servers: withStatus, loading: false, error: undefined },
+      }
+      this.post()
+      this.webviewHost.post(source, { type: "mcpInstalledData", servers: withStatus } satisfies ExtensionToWebview)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      this.state = {
+        ...this.state,
+        mcpInstalled: { servers: this.state.mcpInstalled?.servers ?? [], loading: false, error: message },
+      }
+      this.post()
+      this.webviewHost.post(source, {
+        type: "mcpInstalledData",
+        servers: this.state.mcpInstalled?.servers ?? [],
+        error: message,
+      } satisfies ExtensionToWebview)
+    }
+  }
+
+  // Triggered by the mcp.tools.changed event. Only refreshes when the Installed
+  // panel has already been opened, and broadcasts to every webview.
+  private async refreshMcpInstalled() {
+    if (!this.state.mcpInstalled) return
+    try {
+      const withStatus = await this.loadMcpInstalled()
+      this.state = {
+        ...this.state,
+        mcpInstalled: { servers: withStatus, loading: false, error: undefined },
+      }
+      this.post()
+    } catch (error) {
+      this.report(error)
+    }
+  }
+
+  private async loadMcpInstalled() {
+    const client = await this.client()
+    const directory = this.directory()
+    const [servers, status] = await Promise.all([
+      this.marketplace.listInstalled(client, directory),
+      this.marketplace.status(client, directory).catch(() => ({}) as Record<string, McpStatus>),
+    ])
+    return servers.map((server) => ({ ...server, status: status[server.id] }))
+  }
+
+  private async setMcpServerEnabled(
+    message: Extract<WebviewToExtension, { type: "setMcpServerEnabled" }>,
+    source: RaccoonWebviewSource,
+  ) {
+    await this.runMcpServerAction(message.id, source, async () => {
+      await this.marketplace.setEnabled(
+        await this.client(),
+        this.directory(),
+        message.id,
+        message.scope,
+        message.enabled,
+      )
+    })
+  }
+
+  private async connectMcpServer(
+    message: Extract<WebviewToExtension, { type: "connectMcpServer" }>,
+    source: RaccoonWebviewSource,
+  ) {
+    await this.runMcpServerAction(message.id, source, async () => {
+      await this.marketplace.connect(await this.client(), this.directory(), message.id)
+    })
+  }
+
+  private async disconnectMcpServer(
+    message: Extract<WebviewToExtension, { type: "disconnectMcpServer" }>,
+    source: RaccoonWebviewSource,
+  ) {
+    await this.runMcpServerAction(message.id, source, async () => {
+      await this.marketplace.disconnect(await this.client(), this.directory(), message.id)
+    })
+  }
+
+  private async removeMcpServer(
+    message: Extract<WebviewToExtension, { type: "removeMcpServer" }>,
+    source: RaccoonWebviewSource,
+  ) {
+    await this.runMcpServerAction(message.id, source, async () => {
+      await this.marketplace.removeById(await this.client(), this.directory(), message.id, message.scope)
+    })
+  }
+
+  private async updateMcpServer(
+    message: Extract<WebviewToExtension, { type: "updateMcpServer" }>,
+    source: RaccoonWebviewSource,
+  ) {
+    await this.runMcpServerAction(message.id, source, async () => {
+      const result = await this.marketplace.updateConfig(
+        await this.client(),
+        this.directory(),
+        message.id,
+        message.scope,
+        message.config,
+      )
+      if (!result.success) throw new Error(result.error ?? "Failed to update MCP server")
+    })
+  }
+
+  private async runMcpServerAction(id: string, source: RaccoonWebviewSource, action: () => Promise<unknown>) {
+    try {
+      await action()
+      this.webviewHost.post(source, { type: "mcpServerActionResult", id, success: true } satisfies ExtensionToWebview)
+      await this.refresh()
+      await this.fetchMcpInstalled(source)
+    } catch (error) {
+      this.webviewHost.post(source, {
+        type: "mcpServerActionResult",
+        id,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      } satisfies ExtensionToWebview)
+    }
+  }
+
+  private report(error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    this.platform.ui.log(message)
+    this.state = { ...this.state, loading: false, busy: false, error: message }
+    this.didChangeState.fire()
+    this.webviewHost.postError(message)
+  }
+
+  private onConnectionState(state: ConnectionState) {
+    if (state === "connecting") {
+      this.state = { ...this.state, loading: true, busy: true, error: undefined }
+      this.post()
+      return
+    }
+    if (state === "connected") {
+      this.state = {
+        ...this.state,
+        loading: false,
+        busy: false,
+        error: undefined,
+        serverUrl: this.connection.getServerConfig()?.baseUrl,
+        directory: this.directory(),
+      }
+      this.post()
+      return
+    }
+    if (state === "error" || state === "disconnected") {
+      this.state = { ...this.state, loading: false, busy: false, error: `Backend ${state}` }
+      this.post()
+    }
+  }
+
+  dispose() {
+    if (this.eventRefreshTimer) clearTimeout(this.eventRefreshTimer)
+    this.unsubscribeState?.()
+    this.autocompleteConfigListener.dispose()
+    this.sessions.dispose()
+    this.streams.dispose()
+    this.marketplace.dispose()
+    void this.stopEventStream()
+    this.didChangeState.dispose()
+  }
+}

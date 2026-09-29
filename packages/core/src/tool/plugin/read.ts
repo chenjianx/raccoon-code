@@ -3,7 +3,7 @@ export * as ReadTool from "./read.js"
 import type { Context } from "@opencode/plugin/effect/plugin"
 import { basename, dirname, join } from "path"
 import { ToolFailure } from "@opencode/ai"
-import { Effect, Schema } from "effect"
+import { Effect, Option, Schema } from "effect" // raccoon_change - sample directory child files
 import { FSUtil } from "@opencode/util/fs-util"
 import { Location } from "../../location.js"
 import { FileAccess } from "../../file-access.js"
@@ -11,6 +11,7 @@ import { SessionInstructions } from "../../session/instructions.js"
 import { AbsolutePath } from "../../schema.js"
 import { ReadToolFileSystem } from "../read-filesystem.js"
 import { Environment } from "../../environment/index.js"
+import { RaccoonRead } from "../../raccoon/read.js" // raccoon_change - extract directory file inlining
 
 export const name = "read"
 const FILENAME = "AGENTS.md"
@@ -22,6 +23,11 @@ const LocationInput = Schema.Struct({
   limit: ReadToolFileSystem.PageInput.fields.limit.annotate({
     description: "The maximum number of lines or directory entries to read (defaults to and capped at 2000)",
   }),
+  // raccoon_change start - opt in to directory mention file content
+  includeDirectoryFiles: Schema.optionalKey(Schema.Boolean).annotate({
+    description: "Include text contents of the listed directory files in the result",
+  }),
+  // raccoon_change end
 })
 export const Input = LocationInput
 const Output = Schema.Union([ReadToolFileSystem.FileContent, ReadToolFileSystem.TextPage, ReadToolFileSystem.ListPage])
@@ -110,12 +116,40 @@ export const Plugin = {
                 !ReadToolFileSystem.MEDIA_MIMES.has(result.content.mime)
               )
                 return yield* Effect.fail(new ReadToolFileSystem.BinaryFileError({ resource: result.target.resource }))
-              return { output: result.content, path: result.path }
+              // raccoon_change start - inline selected directory files for explicit mention reads
+              const loaded =
+                result.content.type === "list-page" && input.includeDirectoryFiles
+                  ? yield* RaccoonRead.inlineDirectory({
+                      read: reader.read,
+                      authorize: (child) => access.authorizeRead(child, context).pipe(Effect.asVoid),
+                      sample: (child) =>
+                        Effect.scoped(
+                          Effect.gen(function* () {
+                            const info = yield* fs.stat(child)
+                            if (info.type !== "File") return
+                            const file = yield* fs.open(child, { flag: "r" })
+                            return Option.getOrUndefined(yield* file.readAlloc(Math.min(4096, Number(info.size))))
+                          }),
+                        ).pipe(Effect.catch(() => Effect.succeed(undefined))),
+                      directory: result.target.absolute,
+                      location: location.directory,
+                      page: result.content,
+                    })
+                  : []
+              return { output: result.content, path: result.path, loaded }
+              // raccoon_change end
             }).pipe(
               Effect.map((result) => ({
                 output: result.output,
-                content: toModelContent(result.path, input.offset, result.output),
-                metadata: { truncated: result.output.type === "file" ? false : result.output.truncated },
+                // raccoon_change start - expose inlined directory files to model and metadata
+                content: toModelContent(result.path, input.offset, result.output, result.loaded),
+                metadata: {
+                  truncated: result.output.type === "file" ? false : result.output.truncated,
+                  ...(input.includeDirectoryFiles && result.output.type === "list-page"
+                    ? { loaded: result.loaded.map((item) => item.path) }
+                    : {}),
+                },
+                // raccoon_change end
               })),
               Effect.mapError((error) => {
                 if (error instanceof ToolFailure) return error
@@ -171,7 +205,14 @@ export const Plugin = {
   }),
 }
 
-export const toModelContent = (path: string, offset: number | undefined, output: typeof Output.Type) => {
+// raccoon_change start - allow explicit directory file inlining in model output
+export const toModelContent = (
+  path: string,
+  offset: number | undefined,
+  output: typeof Output.Type,
+  loaded: readonly { content: string }[] = [],
+) => {
+  // raccoon_change end
   if (output.type === "file" && output.encoding === "base64")
     return [
       { type: "text", text: output.mime === "application/pdf" ? "PDF read successfully" : "Image read successfully" },
@@ -193,7 +234,14 @@ export const toModelContent = (path: string, offset: number | undefined, output:
     output.entries.forEach((entry) => content.push(entry.path))
     if (output.truncated && output.next !== undefined)
       content.push(`[Output truncated. Continue reading with offset: ${output.next}]`)
-    return content.join("\n")
+    // raccoon_change start - append selected directory text after the listing
+    return (
+      content.join("\n") +
+      (loaded.length
+        ? `\n\n<system-reminder>\n${loaded.map((item) => item.content).join("\n\n")}\n</system-reminder>`
+        : "")
+    )
+    // raccoon_change end
   }
 
   const start = output.type === "text-page" ? output.offset : 1

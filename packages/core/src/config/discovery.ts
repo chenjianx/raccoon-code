@@ -7,8 +7,9 @@ import { Global } from "@opencode/util/global"
 import { Location } from "../location.js"
 import { AbsolutePath } from "../schema.js"
 import type { Options } from "../config.js"
+import { RaccoonConfig } from "../raccoon/config.js" // raccoon_change - add Raccoon config discovery names
 
-export const names = ["opencode.json", "opencode.jsonc"]
+export const names = RaccoonConfig.files(["opencode.json", "opencode.jsonc"]) // raccoon_change - discover Raccoon config files
 
 /** Eligible sources in priority order, including paths that may appear later. */
 export interface Sources {
@@ -38,10 +39,13 @@ export const discover = Effect.fn("ConfigDiscovery.discover")(function* (options
     Effect.gen(function* () {
       // Resolve the parent too: missing children must honor symlinked global roots.
       const parent = yield* fs.resolve(directory)
-      return yield* Effect.forEach([".claude", ".agents", ".opencode", ...names.toReversed()], (name) =>
-        fs
-          .resolve(path.join(parent, name))
-          .pipe(Effect.map((resolved) => ({ item: AbsolutePath.make(path.join(directory, name)), resolved }))),
+      // raccoon_change - discover Raccoon project config
+      return yield* Effect.forEach(
+        [".claude", ".agents", ...RaccoonConfig.directories, ...names.toReversed()],
+        (name) =>
+          fs
+            .resolve(path.join(parent, name))
+            .pipe(Effect.map((resolved) => ({ item: AbsolutePath.make(path.join(directory, name)), resolved }))),
       )
     }),
   ).pipe(
@@ -63,9 +67,11 @@ export const discover = Effect.fn("ConfigDiscovery.discover")(function* (options
   return {
     global: globalEnabled ? globalDirectory : undefined,
     explicit: options?.file ? AbsolutePath.make(path.resolve(options.file)) : undefined,
-    direct: visible.filter((item) => ![".agents", ".claude", ".opencode"].includes(path.basename(item))).toReversed(),
+    direct: visible
+      .filter((item) => ![".agents", ".claude", ...RaccoonConfig.directories].includes(path.basename(item)))
+      .toReversed(), // raccoon_change - exclude Raccoon config dirs
     project: yield* Effect.forEach(
-      visible.filter((item) => path.basename(item) === ".opencode").toReversed(),
+      visible.filter((item) => RaccoonConfig.directories.includes(path.basename(item))).toReversed(), // raccoon_change - load Raccoon config dirs
       (directory) => fs.isDir(directory).pipe(Effect.map((present) => ({ path: directory, present }))),
     ),
     claude: [

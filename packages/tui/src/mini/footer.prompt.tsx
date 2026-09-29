@@ -534,7 +534,13 @@ export function createPromptState(input: PromptInput): PromptState {
         description: "compact older session context to free space",
       } satisfies SlashOption,
       ...EXIT_COMMANDS.map(
-        (name) => ({ kind: "slash", name, display: `/${name}`, description: "close OpenCode" }) satisfies SlashOption,
+        (name) =>
+          ({
+            kind: "slash",
+            name,
+            display: `/${name}`,
+            description: process.env.RACCOON_CLI === "1" ? "close Raccoon" : "close OpenCode",
+          }) satisfies SlashOption, // raccoon_change - brand exit command
       ),
     ]
     const hidden = new Set(builtins.map((item) => item.name))

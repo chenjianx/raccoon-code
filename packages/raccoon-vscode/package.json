@@ -1,0 +1,279 @@
+{
+  "name": "raccoon",
+  "displayName": "%raccoon.package.displayName%",
+  "description": "%raccoon.package.description%",
+  "version": "1.0.0",
+  "publisher": "raccoon",
+  "license": "MIT",
+  "type": "module",
+  "icon": "images/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anomalyco/opencode"
+  },
+  "engines": {
+    "vscode": "^1.94.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./dist/extension.cjs",
+  "contributes": {
+    "icons": {
+      "raccoon-icon": {
+        "description": "raccoon logo",
+        "default": {
+          "fontPath": "images/raccoon.woff",
+          "fontCharacter": "\\e900"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "raccoon.openChat",
+        "title": "%raccoon.commands.openChat.title%"
+      },
+      {
+        "command": "raccoon.focusChat",
+        "title": "%raccoon.commands.focusChat.title%"
+      },
+      {
+        "command": "raccoon.newSession",
+        "title": "%raccoon.commands.newSession.title%",
+        "icon": "$(add)"
+      },
+      {
+        "command": "raccoon.pickSession",
+        "title": "%raccoon.commands.pickSession.title%",
+        "icon": "$(history)"
+      },
+      {
+        "command": "raccoon.openSettings",
+        "title": "%raccoon.commands.openSettings.title%",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "raccoon.explainCode",
+        "title": "%raccoon.commands.explainCode.title%",
+        "category": "%raccoon.commands.category%"
+      },
+      {
+        "command": "raccoon.fixCode",
+        "title": "%raccoon.commands.fixCode.title%",
+        "category": "%raccoon.commands.category%"
+      },
+      {
+        "command": "raccoon.improveCode",
+        "title": "%raccoon.commands.improveCode.title%",
+        "category": "%raccoon.commands.category%"
+      },
+      {
+        "command": "raccoon.refactorCode",
+        "title": "%raccoon.commands.refactorCode.title%",
+        "category": "%raccoon.commands.category%"
+      },
+      {
+        "command": "raccoon.commentCode",
+        "title": "%raccoon.commands.commentCode.title%",
+        "category": "%raccoon.commands.category%"
+      },
+      {
+        "command": "raccoon.addToContext",
+        "title": "%raccoon.commands.addToContext.title%",
+        "category": "%raccoon.commands.category%"
+      },
+      {
+        "command": "raccoon.openFunctionActions",
+        "title": "%raccoon.commands.openFunctionActions.title%",
+        "category": "%raccoon.commands.category%"
+      },
+      {
+        "command": "raccoon.autocomplete.generateSuggestions",
+        "title": "Raccoon: Trigger Inline Completion",
+        "category": "Raccoon"
+      },
+      {
+        "command": "raccoon.autocomplete.cancelSuggestions",
+        "title": "Raccoon: Cancel Inline Completion",
+        "category": "Raccoon"
+      },
+      {
+        "command": "raccoon.autocomplete.reload",
+        "title": "Raccoon: Reload Autocomplete",
+        "category": "Raccoon"
+      },
+      {
+        "command": "raccoon.autocomplete.disable",
+        "title": "Raccoon: Disable Autocomplete",
+        "category": "Raccoon"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "raccoon.editorContextMenu",
+        "label": "%raccoon.submenus.editorContext.label%"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "raccoon.newSession",
+          "when": "view == raccoon.chat",
+          "group": "navigation@1"
+        },
+        {
+          "command": "raccoon.pickSession",
+          "when": "view == raccoon.chat",
+          "group": "navigation@2"
+        },
+        {
+          "command": "raccoon.openSettings",
+          "when": "view == raccoon.chat",
+          "group": "navigation@3"
+        }
+      ],
+      "editor/context": [
+        {
+          "submenu": "raccoon.editorContextMenu",
+          "group": "1_raccoon",
+          "when": "editorHasSelection"
+        }
+      ],
+      "raccoon.editorContextMenu": [
+        {
+          "command": "raccoon.explainCode",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "raccoon.fixCode",
+          "group": "1_actions@2"
+        },
+        {
+          "command": "raccoon.improveCode",
+          "group": "1_actions@3"
+        },
+        {
+          "command": "raccoon.addToContext",
+          "group": "1_actions@4"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "raccoon",
+          "title": "%raccoon.views.container.title%",
+          "icon": "images/raccoon.svg"
+        }
+      ]
+    },
+    "views": {
+      "raccoon": [
+        {
+          "type": "webview",
+          "id": "raccoon.chat",
+          "name": "%raccoon.views.chat.name%"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "%raccoon.configuration.title%",
+      "properties": {
+        "raccoon.serverUrl": {
+          "type": "string",
+          "default": "",
+          "description": "%raccoon.configuration.serverUrl.description%"
+        },
+        "raccoon.opencodeCommand": {
+          "type": "string",
+          "default": "raccoon",
+          "description": "%raccoon.configuration.opencodeCommand.description%"
+        },
+        "raccoon.autocomplete.enableAutoTrigger": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable inline (ghost text) autocomplete suggestions as you type."
+        },
+        "raccoon.autocomplete.model": {
+          "type": "string",
+          "default": "raccoon-pro-completion",
+          "enum": ["raccoon-pro-completion", "raccoon-completion"],
+          "description": "The completion model used for inline autocomplete."
+        },
+        "raccoon.autocomplete.debug": {
+          "type": "boolean",
+          "default": true,
+          "description": "Log inline completion diagnostics to the 'Raccoon Autocomplete' output channel."
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "raccoon.focusChat",
+        "key": "ctrl+l",
+        "mac": "cmd+l",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "raccoon.autocomplete.generateSuggestions",
+        "key": "alt+\\",
+        "mac": "alt+\\",
+        "when": "editorTextFocus && !editorHasSelection"
+      },
+      {
+        "command": "raccoon.autocomplete.cancelSuggestions",
+        "key": "escape",
+        "when": "editorTextFocus && raccoon.autocomplete.hasSuggestions"
+      }
+    ]
+  },
+  "scripts": {
+    "build:cli": "bun run script/local-bin.ts",
+    "build:webview": "bun run --cwd ../raccoon-webview build",
+    "dev": "bun run build:cli && bun run build:webview && bun run watch",
+    "compile": "bun run build:cli && bun run build:webview && bun run check-types && bun run lint && node esbuild.cjs",
+    "package": "bun run build:cli && bun run build:webview && bun run check-types && bun run lint && node esbuild.cjs --production",
+    "vscode:prepublish": "bun run package",
+    "vsix": "mkdir -p build && vsce package --no-dependencies --allow-package-secrets github --allow-package-secrets slack -o build",
+    "vsix:target": "bun run script/local-bin.ts --target",
+    "package:all": "bun run script/package-all.ts",
+    "watch": "node esbuild.cjs --watch",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "@opencode-ai/raccoon-core": "workspace:*",
+    "@opencode-ai/raccoon-webview": "workspace:*",
+    "@opencode/client": "workspace:*",
+    "@tree-sitter-grammars/tree-sitter-kotlin": "1.1.0",
+    "tree-sitter": "^0.25.0",
+    "tree-sitter-c": "0.24.1",
+    "tree-sitter-c-sharp": "^0.23.1",
+    "tree-sitter-cpp": "^0.23.4",
+    "tree-sitter-dart": "1.0.0",
+    "tree-sitter-bash": "0.25.0",
+    "tree-sitter-go": "^0.25.0",
+    "tree-sitter-java": "^0.23.5",
+    "tree-sitter-javascript": "^0.25.0",
+    "tree-sitter-lua": "2.1.3",
+    "tree-sitter-objc": "3.0.2",
+    "tree-sitter-php": "^0.23.0",
+    "tree-sitter-ruby": "^0.23.1",
+    "tree-sitter-scala": "0.24.0",
+    "tree-sitter-swift": "^0.7.1",
+    "tree-sitter-python": "^0.25.0",
+    "tree-sitter-powershell": "0.25.10",
+    "tree-sitter-rust": "^0.24.0",
+    "tree-sitter-typescript": "^0.23.2"
+  },
+  "devDependencies": {
+    "@types/node": "20.x",
+    "@types/vscode": "^1.94.0",
+    "@typescript-eslint/eslint-plugin": "^8.31.1",
+    "@typescript-eslint/parser": "^8.31.1",
+    "@vscode/vsce": "^3.2.1",
+    "esbuild": "^0.25.3",
+    "eslint": "^9.25.1",
+    "js-yaml": "4.2.0",
+    "typescript": "^5.8.3"
+  }
+}

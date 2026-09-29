@@ -10,11 +10,14 @@ import { Effect } from "effect"
 import path from "path"
 import { fileURLToPath } from "url"
 import { Image } from "../image.js"
+import { Agent } from "../agent.js" // raccoon_change - select directory mention tool permissions
 import { Instance } from "../instance/service.js"
 import { Mime } from "../mime.js"
 import { Plugin } from "../plugin/service.js"
 import { PluginHooks } from "../plugin/hooks.js"
 import { Skill } from "../skill.js"
+import { Permission } from "../permission.js" // raccoon_change - match model turn tool permissions
+import { Tool } from "../tool.js" // raccoon_change - execute directory mention through ReadTool
 import { AttachmentError, SkillNotFoundError } from "./error.js"
 
 export type Input = {
@@ -50,9 +53,13 @@ export const prepare = Effect.fn("SessionPrompt.prepare")(function* (request: {
       delivery: request.input.delivery ?? "steer",
     })
     const input = event.prompt
+    // raccoon_change start - pass prompt identity to directory mention reads
     const files = input.files
-      ? yield* Effect.forEach(input.files, materializeAttachment, { concurrency: 8 })
+      ? yield* Effect.forEach(input.files, (file, index) => materializeAttachment(file, request, index), {
+          concurrency: 8,
+        })
       : undefined
+    // raccoon_change end
     const requested = input.skills
     const selected = yield* Effect.gen(function* () {
       if (!requested?.length) return undefined
@@ -92,6 +99,10 @@ export const prepare = Effect.fn("SessionPrompt.prepare")(function* (request: {
 
 const materializeAttachment = Effect.fn("SessionPrompt.materializeAttachment")(function* (
   input: PromptInput.FileAttachment,
+  // raccoon_change start - preserve the session and call identity for implicit read authorization
+  request: { session: Session.Info; messageID: SessionMessage.ID },
+  index: number,
+  // raccoon_change end
 ) {
   const label = attachmentLabel(input)
   const resolved = input.uri.startsWith("data:")
@@ -103,7 +114,7 @@ const materializeAttachment = Effect.fn("SessionPrompt.materializeAttachment")(f
         name: undefined,
         mime: undefined,
       }
-    : yield* readFileAttachment(input.uri)
+    : yield* readFileAttachment(input.uri, input.mention === undefined ? undefined : { ...request, index }) // raccoon_change - expand only directory mentions
   if (resolved.bytes.byteLength > MAX_ATTACHMENT_BYTES)
     return yield* new AttachmentError({
       uri: label,
@@ -148,7 +159,12 @@ const normalizeImageAttachment = Effect.fn("SessionPrompt.normalizeImageAttachme
   return { data: Base64.make(normalized.content), mime: normalized.mime }
 })
 
-const readFileAttachment = Effect.fn("SessionPrompt.readFileAttachment")(function* (uri: string) {
+// raccoon_change start - route mentioned directories through the permissioned ReadTool
+const readFileAttachment = Effect.fn("SessionPrompt.readFileAttachment")(function* (
+  uri: string,
+  mention?: { session: Session.Info; messageID: SessionMessage.ID; index: number },
+) {
+  // raccoon_change end
   const fs = yield* FSUtil.Service
   const url = yield* Effect.try({
     try: () => new URL(uri),
@@ -170,6 +186,44 @@ const readFileAttachment = Effect.fn("SessionPrompt.readFileAttachment")(functio
     .stat(target)
     .pipe(Effect.mapError(() => new AttachmentError({ uri, message: `Unable to read attachment: ${uri}` })))
   if (info.type === "Directory") {
+    // raccoon_change start - store the bounded ReadTool output in the durable attachment
+    if (mention) {
+      const agents = yield* Agent.Service
+      const registry = yield* Tool.Service
+      const selected = yield* agents.select(mention.session.agent)
+      if (!selected.info)
+        return yield* new AttachmentError({ uri, message: `Unable to select an agent for directory mention: ${uri}` })
+      const tools = yield* registry.snapshot(
+        Permission.merge(selected.info.permissions, mention.session.permissions ?? []),
+      )
+      const result = yield* tools
+        .execute({
+          sessionID: mention.session.id,
+          agent: selected.id,
+          messageID: mention.messageID,
+          call: {
+            type: "tool-call",
+            id: `attachment-${mention.messageID}-${mention.index}`,
+            name: "read",
+            input: { path: target, includeDirectoryFiles: true },
+          },
+        })
+        .pipe(Effect.mapError((error) => new AttachmentError({ uri, message: error.message })))
+      return {
+        bytes: Buffer.from(
+          result.content
+            .filter((item) => item.type === "text")
+            .map((item) => item.text)
+            .join("\n"),
+        ),
+        source: { type: "uri" as const, uri },
+        start: undefined,
+        end: undefined,
+        name: path.basename(target),
+        mime: "application/x-directory",
+      }
+    }
+    // raccoon_change end
     const entries = yield* fs
       .readDirectoryEntries(target)
       .pipe(Effect.mapError(() => new AttachmentError({ uri, message: `Unable to read attachment: ${uri}` })))

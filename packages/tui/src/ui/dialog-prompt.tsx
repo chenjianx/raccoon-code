@@ -1,4 +1,4 @@
-import { TextareaRenderable, TextAttributes } from "@opentui/core"
+import { TextareaRenderable, TextAttributes, type KeyEvent, type PasteEvent } from "@opentui/core" // raccoon_change - mask secret dialog input
 import { Keymap } from "../context/keymap"
 import { useTheme } from "../context/theme"
 import { useDialog, type DialogSize } from "./dialog"
@@ -13,6 +13,7 @@ export type DialogPromptProps = {
   description?: () => JSX.Element
   placeholder?: string
   value?: string
+  secret?: boolean // raccoon_change - keep password text out of the terminal editor
   busy?: boolean
   busyText?: string
   onConfirm?: (value: string) => void
@@ -27,10 +28,42 @@ export function DialogPrompt(props: DialogPromptProps) {
   const config = useConfig().data
   const [textareaTarget, setTextareaTarget] = createSignal<TextareaRenderable>()
   let textarea: TextareaRenderable
+  // raccoon_change start - store secret input separately so selection and render buffers contain masks only
+  let secretValue = props.secret ? (props.value ?? "") : ""
+
+  function mask(value: string) {
+    secretValue = value
+    textarea.setText("•".repeat([...value].length))
+    textarea.gotoLineEnd()
+  }
+
+  function secretKey(event: KeyEvent) {
+    if (!props.secret) return
+    if (["return", "enter", "kpenter", "linefeed", "escape"].includes(event.name)) return
+    event.preventDefault()
+    if (event.name === "backspace") {
+      mask([...secretValue].slice(0, -1).join(""))
+      return
+    }
+    if (event.ctrl && event.name === "u") {
+      mask("")
+      return
+    }
+    if (event.ctrl || event.meta || event.option || event.super || event.hyper) return
+    if (!event.sequence || /[\x00-\x1f\x7f]/.test(event.sequence)) return
+    mask(secretValue + event.sequence)
+  }
+
+  function secretPaste(event: PasteEvent) {
+    if (!props.secret) return
+    event.preventDefault()
+    mask(secretValue + new TextDecoder().decode(event.bytes).replace(/[\r\n]/g, ""))
+  }
+  // raccoon_change end
 
   function confirm() {
     if (props.busy) return
-    props.onConfirm?.(textarea.plainText)
+    props.onConfirm?.(props.secret ? secretValue : textarea.plainText) // raccoon_change - submit the private secret value
   }
 
   Keymap.createLayer(() => ({
@@ -119,7 +152,9 @@ export function DialogPrompt(props: DialogPromptProps) {
             textarea = val
             setTextareaTarget(val)
           }}
-          initialValue={props.value}
+          initialValue={props.secret ? "•".repeat([...(props.value ?? "")].length) : props.value} // raccoon_change - never initialize editor with cleartext
+          onKeyDown={secretKey} // raccoon_change - intercept edits before the native editor sees them
+          onPaste={secretPaste} // raccoon_change - intercept pasted secrets before the native editor sees them
           placeholder={props.placeholder ?? "Enter text"}
           placeholderColor={theme.text.muted}
           textColor={props.busy ? theme.text.formfield.disabled : theme.text.formfield.base}

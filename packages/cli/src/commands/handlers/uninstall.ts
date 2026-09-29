@@ -14,7 +14,10 @@ import { errorMessage } from "../../util/error"
 export default Runtime.handler(
   Commands.commands.uninstall,
   Effect.fn("cli.uninstall")(function* (input) {
-    intro("Uninstall OpenCode")
+    // raccoon_change - use Raccoon's isolated paths and owning package
+    const raccoon = process.env.RACCOON_CLI === "1"
+    // raccoon_change - identify the active product in the uninstall prompt
+    intro(`Uninstall ${raccoon ? "Raccoon" : "OpenCode"}`)
     const fs = yield* FileSystem.FileSystem
     const global = yield* Global.Service
     const updater = yield* Updater.Service
@@ -34,7 +37,8 @@ export default Runtime.handler(
     const shell = method === "curl" ? yield* shellConfigs(global.home) : []
 
     log.info(`Installation method: ${method ?? "unknown"}`)
-    log.message("The following global files will be removed (shared by OpenCode versions and channels):")
+    // raccoon_change - identify which product owns the displayed paths
+    log.message(`The following global files will be removed (shared by ${raccoon ? "Raccoon" : "OpenCode"} versions and channels):`)
     yield* Effect.forEach(directories, (directory) =>
       Effect.gen(function* () {
         if (!(yield* fs.exists(directory.path))) return
@@ -167,10 +171,14 @@ const shellConfigs = Effect.fnUntraced(function* (home: string) {
 })
 
 function cleanShellConfig(content: string) {
+  // raccoon_change - remove only the active product's installer PATH entry
+  const product = process.env.RACCOON_CLI === "1" ? "raccoon" : "opencode"
   const lines = content.split("\n")
   const entry = (line: string) =>
-    /^(?:export PATH=|fish_add_path\s)/.test(line.trim()) && line.includes(".opencode/bin")
+    // raccoon_change - match only the active product's bin directory
+    /^(?:export PATH=|fish_add_path\s)/.test(line.trim()) && line.includes(`.${product}/bin`)
   return lines
-    .filter((line, index) => !entry(line) && !(line.trim() === "# opencode" && entry(lines[index + 1] ?? "")))
+    // raccoon_change - preserve the other product's shell configuration
+    .filter((line, index) => !entry(line) && !(line.trim() === `# ${product}` && entry(lines[index + 1] ?? "")))
     .join("\n")
 }

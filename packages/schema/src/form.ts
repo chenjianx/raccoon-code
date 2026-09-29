@@ -55,6 +55,7 @@ export const StringField = Schema.Struct({
   maxLength: NonNegativeInt.pipe(optional),
   pattern: Schema.String.pipe(optional),
   placeholder: Schema.String.pipe(optional),
+  secret: Schema.Boolean.pipe(optional).annotate({ description: "Mask interactive input and never echo its value" }),
   default: Schema.String.pipe(optional),
   options: Schema.Array(Option).pipe(optional),
   custom: Schema.Boolean.pipe(optional),

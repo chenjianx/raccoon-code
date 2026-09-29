@@ -12,10 +12,14 @@ import { verifyArtifact, verifySimulationGraph } from "./verify-artifact"
 import { resolveOpencodePty } from "./opencode-pty"
 
 const dir = path.resolve(import.meta.dirname, "..")
-const binary = "opencode"
+// raccoon_change start - build an independent Raccoon platform distribution on demand
+const raccoon = process.argv.includes("--raccoon-only")
+const binary = raccoon ? "raccoon" : "opencode"
+// raccoon_change end
 const outdir = path.resolve(
   dir,
-  process.argv.find((arg) => arg.startsWith("--outdir="))?.slice("--outdir=".length) ?? "dist",
+  // raccoon_change - keep Raccoon builds separate from OpenCode artifacts
+  process.argv.find((arg) => arg.startsWith("--outdir="))?.slice("--outdir=".length) ?? (raccoon ? "dist/raccoon" : "dist"),
 )
 if (outdir === dir) throw new Error("--outdir must not be the package directory")
 process.chdir(dir)
@@ -118,7 +122,8 @@ export default { path: file, version: ${JSON.stringify(opencodePty.version)}, sh
     },
   }
   const target = targetName(item)
-  const name = target.replace(binary, "cli")
+  // raccoon_change - keep the public Raccoon platform package prefix
+  const name = raccoon ? target : target.replace(binary, "cli")
   const executablePath = await compileExecutable(item)
   console.log(`building ${name}`)
   const result = await Bun.build({
@@ -141,7 +146,8 @@ export default { path: file, version: ${JSON.stringify(opencodePty.version)}, sh
       outfile: path.join(outdir, name, "bin", binary),
       execArgv: [
         "--smol",
-        `--user-agent=opencode/${Script.channel}/${Script.version}/cli`,
+        // raccoon_change - identify Raccoon builds to the gateway
+        `--user-agent=${binary}/${Script.channel}/${Script.version}/cli`,
         "--use-system-ca",
         "--no-warnings",
         "--",
@@ -150,9 +156,12 @@ export default { path: file, version: ${JSON.stringify(opencodePty.version)}, sh
     },
     define: {
       OPENCODE_VERSION: `'${Script.version}'`,
-      OPENCODE_CLI_NAME: "'opencode'",
+      // raccoon_change start - compile Raccoon identity into standalone binaries
+      OPENCODE_CLI_NAME: raccoon ? "'raccoon'" : "'opencode'",
       OPENCODE_CHANNEL: `'${Script.channel}'`,
-      OPENCODE_ARTIFACT: `'cli'`,
+      OPENCODE_ARTIFACT: raccoon ? "'raccoon-cli'" : "'cli'",
+      ...(raccoon ? { "process.env.RACCOON_CLI": "'1'" } : {}),
+      // raccoon_change end
       OPENCODE_LIBC: item.os === "linux" ? `'${item.abi ?? "glibc"}'` : "undefined",
       // FFF_LIBC selects the fff native lib variant: "musl" or "gnu".
       FFF_LIBC: item.os === "linux" ? `'${item.abi ?? "gnu"}'` : "undefined",
@@ -170,10 +179,12 @@ export default { path: file, version: ${JSON.stringify(opencodePty.version)}, sh
     path.join(outdir, name, "package.json"),
     JSON.stringify(
       {
-        name: `@opencode/${name}`,
+        // raccoon_change - publish the standalone binary under a Raccoon package name
+        name: raccoon ? name : `@opencode/${name}`,
         version: Script.version,
         license: "MIT",
-        repository: { type: "git", url: "git+https://github.com/anomalyco/opencode.git" },
+        // raccoon_change - Raccoon package metadata points to its own repository
+        repository: { type: "git", url: `git+https://github.com/${raccoon ? "chenjianx/raccoon-code" : "anomalyco/opencode"}.git` },
         os: [item.os],
         cpu: [item.arch],
       },

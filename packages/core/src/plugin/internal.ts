@@ -86,6 +86,7 @@ import { WebSearchTool } from "../tool/plugin/websearch.js"
 import { WellKnown } from "../wellknown.js"
 import { WriteTool } from "../tool/plugin/write.js"
 import { AgentPlugin } from "./agent.js"
+import { RaccoonPrompt } from "../raccoon/prompt.js" // raccoon_change - brand built-in prompts for Raccoon hosts
 import BrowserPlugin from "@opencode/plugin-browser"
 import { CommandPlugin } from "./command.js"
 import { IdentityPlugin } from "./identity.js"
@@ -229,6 +230,7 @@ const pre = [
   PatchTool.Plugin,
   // Render model prompts after the patch plugin selects the available editing tools.
   ...OptimizePlugin.Plugins,
+  RaccoonPrompt.Plugin, // raccoon_change - apply branding after model prompt selection
   VerbosityPlugin.Plugin,
   IdentityPlugin.Plugin,
   EditTool.Plugin,

@@ -1,0 +1,23 @@
+{
+  "raccoon.package.displayName": "Raccoon",
+  "raccoon.package.description": "Raccoon AI coding assistant for VS Code",
+  "raccoon.commands.category": "Raccoon",
+  "raccoon.commands.openChat.title": "Raccoon: Open Chat",
+  "raccoon.commands.focusChat.title": "Raccoon: Focus Chat (Add Selection)",
+  "raccoon.commands.newSession.title": "Raccoon: New Session",
+  "raccoon.commands.pickSession.title": "Raccoon: History",
+  "raccoon.commands.openSettings.title": "Raccoon: Settings",
+  "raccoon.commands.explainCode.title": "Explain",
+  "raccoon.commands.fixCode.title": "Fix",
+  "raccoon.commands.improveCode.title": "Improve",
+  "raccoon.commands.refactorCode.title": "Refactor",
+  "raccoon.commands.commentCode.title": "Comment",
+  "raccoon.commands.addToContext.title": "Add to Context",
+  "raccoon.commands.openFunctionActions.title": "Raccoon Actions",
+  "raccoon.submenus.editorContext.label": "Raccoon",
+  "raccoon.views.container.title": "Raccoon",
+  "raccoon.views.chat.name": "Chat",
+  "raccoon.configuration.title": "Raccoon",
+  "raccoon.configuration.serverUrl.description": "Existing Raccoon server URL. When empty, Raccoon starts `raccoon serve` locally.",
+  "raccoon.configuration.opencodeCommand.description": "Command used to start Raccoon."
+}

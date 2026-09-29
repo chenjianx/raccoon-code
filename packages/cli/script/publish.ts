@@ -9,7 +9,10 @@ import path from "node:path"
 import { UpdateArtifact } from "../../../script/update-artifact"
 
 const dir = fileURLToPath(new URL("..", import.meta.url))
-const root = path.resolve(process.env.OPENCODE_CLI_DIST ?? path.join(dir, "dist"))
+// raccoon_change start - select the independent Raccoon distribution explicitly
+const raccoon = process.argv.includes("--raccoon-only")
+const root = path.resolve(process.env.OPENCODE_CLI_DIST ?? path.join(dir, raccoon ? "dist/raccoon" : "dist"))
+// raccoon_change end
 process.chdir(dir)
 const dryRun = process.argv.includes("--dry-run")
 
@@ -22,6 +25,8 @@ async function publish(dir: string, name: string, version: string) {
   const exists = !dryRun && (await published(name, version))
   if (exists) console.log(`already published ${name}@${version}`)
   // Keep local tarballs available to downstream publishers when retrying a release.
+  // raccoon_change - keep repeat Raccoon packs from embedding an earlier tarball
+  if (raccoon) for (const file of new Bun.Glob("*.tgz").scanSync({ cwd: dir })) await rm(path.join(dir, file))
   await $`bun pm pack`.cwd(dir)
   if (!exists && !dryRun) await $`npm publish *.tgz --access public --tag ${Script.channel}`.cwd(dir)
 }
@@ -39,6 +44,8 @@ async function publishDistribution(input: {
   for (const filepath of new Bun.Glob("*/package.json").scanSync({ cwd: input.root })) {
     const item = await Bun.file(`${input.root}/${filepath}`).json()
     if (!item.name.startsWith(input.packagePrefix)) continue
+    // raccoon_change - ignore the wrapper package on repeat Raccoon publications
+    if (raccoon && !/^raccoon-(darwin|linux|windows)-/.test(item.name)) continue
     binaries[item.name] = item.version
   }
   console.log(input.name, "binaries", binaries)
@@ -50,6 +57,8 @@ async function publishDistribution(input: {
 
   await $`mkdir -p ${input.root}/${input.name}/bin`
   await $`cp ./script/postinstall.mjs ${input.root}/${input.name}/postinstall.mjs`
+  // raccoon_change - ship the matching standalone installer for curl upgrades
+  if (raccoon) await Bun.write(path.join(input.root, input.name, "install"), Bun.file(path.resolve(dir, "../../install")))
   await Bun.file(`${input.root}/${input.name}/bin/${input.command}.exe`).write(
     [
       `echo "Error: ${input.name}'s postinstall script was not run." >&2`,
@@ -72,7 +81,8 @@ async function publishDistribution(input: {
         scripts: { postinstall: "node ./postinstall.mjs" },
         version,
         license: pkg.license,
-        repository: { type: "git", url: "git+https://github.com/anomalyco/opencode.git" },
+        // raccoon_change - published package metadata uses the matching repository
+        repository: { type: "git", url: `git+https://github.com/${raccoon ? "chenjianx/raccoon-code" : "anomalyco/opencode"}.git` },
         os: ["darwin", "linux", "win32"],
         cpu: ["arm64", "x64"],
         optionalDependencies: binaries,
@@ -88,6 +98,23 @@ async function publishDistribution(input: {
     ),
   )
   await publish(`${input.root}/${input.name}`, input.name, version)
+  // raccoon_change start - Raccoon releases use npm metadata and their own archives
+  if (raccoon) {
+    const files = await Promise.all(
+      Object.keys(binaries).map((name) =>
+        archive(
+          path.join(input.root, name.replace("@opencode/", ""), "bin"),
+          name.slice(input.packagePrefix.length),
+          input.binary,
+          input.root,
+        ),
+      ),
+    )
+    const metadata = { channel: Script.channel, name: input.artifact, version, package: input.name, files: files.map((file) => path.basename(file)) }
+    await Bun.write(path.join(input.root, "raccoon-release.json"), JSON.stringify(metadata, null, 2))
+    return
+  }
+  // raccoon_change end
   const files = await UpdateArtifact.upload({
     version,
     files: await Promise.all(
@@ -123,16 +150,29 @@ async function publishDistribution(input: {
   await UpdateArtifact.publish(artifact)
 }
 
-await publishDistribution({
-  root,
-  name: pkg.name,
-  command: "opencode",
-  legacyCommand: "opencode2",
-  binary: "opencode",
-  packagePrefix: "@opencode/cli-",
-  artifact: "cli",
-})
-if (Script.channel !== "latest" && existsSync(path.join(root, "node"))) {
+// raccoon_change start - only publish the explicitly selected distribution
+await publishDistribution(
+  raccoon
+    ? {
+        root,
+        name: "raccoon-code-cli",
+        command: "raccoon",
+        binary: "raccoon",
+        packagePrefix: "raccoon-",
+        artifact: "raccoon-cli",
+      }
+    : {
+        root,
+        name: pkg.name,
+        command: "opencode",
+        legacyCommand: "opencode2",
+        binary: "opencode",
+        packagePrefix: "@opencode/cli-",
+        artifact: "cli",
+      },
+)
+// raccoon_change end
+if (!raccoon && Script.channel !== "latest" && existsSync(path.join(root, "node"))) {
   await publishDistribution({
     root: path.join(root, "node"),
     name: "@opencode/cli-node",
@@ -143,11 +183,13 @@ if (Script.channel !== "latest" && existsSync(path.join(root, "node"))) {
   })
 }
 
-if (Script.channel === "latest" && Script.release && !dryRun) {
+// raccoon_change - Docker release belongs to OpenCode
+if (!raccoon && Script.channel === "latest" && Script.release && !dryRun) {
   await $`docker buildx build --platform linux/amd64,linux/arm64 --tag ghcr.io/anomalyco/opencode:${Script.version} --push .`
 }
 
-if ((Script.channel === "beta" || Script.channel === "latest") && Script.release) {
+// raccoon_change - OpenCode Homebrew and AUR formulas must not receive Raccoon artifacts
+if (!raccoon && (Script.channel === "beta" || Script.channel === "latest") && Script.release) {
   await $`bun ./script/publish-aur.ts ${dryRun ? ["--dry-run"] : []}`.env({ ...process.env, OPENCODE_CLI_DIST: root })
   await $`bun ./script/publish-homebrew.ts ${dryRun ? ["--dry-run"] : []}`.env({
     ...process.env,
@@ -166,7 +208,10 @@ async function archive(bin: string, target: string, binary: string, directory: s
   const output = path.join(directory, `${binary}-${target}.${extension}`)
   await rm(output, { force: true })
   if (extension === "tar.gz") {
-    await $`tar --mtime=@0 --owner=0 --group=0 --numeric-owner -czf ${output} -C ${bin} ${executable}`
+    // raccoon_change start - allow local Raccoon release checks with macOS bsdtar
+    if (raccoon && process.platform === "darwin") await $`tar -czf ${output} -C ${bin} ${executable}`
+    else await $`tar --mtime=@0 --owner=0 --group=0 --numeric-owner -czf ${output} -C ${bin} ${executable}`
+    // raccoon_change end
   }
   if (extension === "zip") await $`zip -X -q ${output} ${executable}`.cwd(bin)
   return output

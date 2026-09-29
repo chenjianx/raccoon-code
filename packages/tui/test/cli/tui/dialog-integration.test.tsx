@@ -74,6 +74,33 @@ test("skips hidden authentication fields and sends their defaults", async () => 
   }
 })
 
+// raccoon_change start - verify password masking and actual authentication submission
+test("masks secret authentication input while submitting the actual password", async () => {
+  const fixture = await renderIntegration(undefined, [
+    { type: "string", key: "password", title: "Password", required: true, secret: true },
+  ])
+
+  try {
+    fixture.app.mockInput.pressEnter()
+    await fixture.app.waitForFrame((frame) => frame.includes("Password"))
+    await fixture.app.mockInput.typeText("s3")
+    await fixture.app.mockInput.pasteBracketedText("cr3t")
+    const editor = fixture.app.renderer.currentFocusedEditor
+    if (!(editor instanceof TextareaRenderable)) throw new Error("expected focused password prompt")
+    expect(editor.plainText).toBe("••••••")
+    expect(fixture.app.captureCharFrame()).not.toContain("s3cr3t")
+    fixture.app.mockInput.pressEnter()
+    await fixture.app.waitForFrame((frame) => frame.includes("API key"))
+    await fixture.app.mockInput.typeText("test-key")
+    fixture.app.mockInput.pressEnter()
+    await fixture.app.waitFor(() => fixture.requests.length === 1)
+    expect(fixture.requests[0]?.body).toEqual({ key: "test-key", answer: { password: "s3cr3t" } })
+  } finally {
+    fixture.app.renderer.destroy()
+  }
+})
+// raccoon_change end
+
 test("switches the selected account with enter and keeps the reactive account manager open", async () => {
   const fixture = await renderIntegration()
 

@@ -1,0 +1,51 @@
+name: Raccoon CLI release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version for raccoon-code-cli and all platform packages
+        required: true
+        type: string
+      dry_run:
+        description: Build and pack packages without publishing to npm
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    if: github.repository == 'chenjianx/raccoon-code'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+      - uses: ./.github/actions/setup-bun
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - run: bun install --frozen-lockfile
+      - name: Build Raccoon platform binaries
+        run: bun packages/cli/script/build.ts --raccoon-only --skip-install
+        env:
+          OPENCODE_VERSION: ${{ inputs.version }}
+          OPENCODE_CHANNEL: latest
+      - name: Pack or publish Raccoon npm packages
+        run: bun packages/cli/script/publish.ts --raccoon-only ${{ inputs.dry_run && '--dry-run' || '' }}
+        env:
+          OPENCODE_VERSION: ${{ inputs.version }}
+          OPENCODE_CHANNEL: latest
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: raccoon-cli-${{ inputs.version }}
+          path: |
+            packages/cli/dist/raccoon/**/*.tgz
+            packages/cli/dist/raccoon/*.tar.gz
+            packages/cli/dist/raccoon/*.zip
+            packages/cli/dist/raccoon/raccoon-release.json

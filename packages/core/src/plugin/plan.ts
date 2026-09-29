@@ -8,6 +8,7 @@ import { Global } from "@opencode/util/global"
 import { Effect, Stream } from "effect"
 import path from "path"
 import { Permission } from "../permission.js"
+import { RaccoonPlan } from "../raccoon/plan.js" // raccoon_change - resolve Raccoon plan location
 
 const plan = Agent.ID.make("plan")
 
@@ -28,7 +29,7 @@ export const Plugin = define({
   id: "opencode.plan",
   effect: Effect.fn(function* (ctx) {
     const global = yield* Global.Service
-    const directory = path.join(global.home, ".opencode", "plan")
+    const directory = RaccoonPlan.directory({ app: ctx.app.name, home: global.home, data: global.data, project: ctx.location.project }) // raccoon_change - preserve Raccoon plan paths
     const enterReminder = enter(directory)
     yield* ctx.agent.transform((editor) => {
       editor.update(plan, (item) => {

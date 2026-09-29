@@ -35,13 +35,23 @@ const PermissionParams = {
   ),
 }
 
-const Root = Spec.make(typeof OPENCODE_CLI_NAME === "string" ? OPENCODE_CLI_NAME : "opencode", {
-  description: "OpenCode command line interface",
+// raccoon_change start - brand CLI help when launched through the Raccoon alias
+const cliName =
+  process.env.RACCOON_CLI === "1" ? "raccoon" : typeof OPENCODE_CLI_NAME === "string" ? OPENCODE_CLI_NAME : "opencode"
+const cliDescription =
+  process.env.RACCOON_CLI === "1" ? "Raccoon command line interface" : "OpenCode command line interface"
+// raccoon_change end
+// raccoon_change - use the selected CLI name
+const Root = Spec.make(cliName, {
+  // raccoon_change - show the selected CLI description
+  description: cliDescription,
   params: {
     ...ServerParams,
     ...PermissionParams,
     directory: Argument.string("directory").pipe(
-      Argument.withDescription("Directory to start OpenCode in"),
+      Argument.withDescription(
+        process.env.RACCOON_CLI === "1" ? "Directory to start Raccoon in" : "Directory to start OpenCode in",
+      ), // raccoon_change - brand root help
       Argument.optional,
     ),
     continue: Flag.boolean("continue").pipe(
@@ -58,7 +68,10 @@ const Root = Spec.make(typeof OPENCODE_CLI_NAME === "string" ? OPENCODE_CLI_NAME
   },
   commands: [
     Spec.make("upgrade", {
-      description: "Upgrade OpenCode to the latest or a specific version",
+      description:
+        process.env.RACCOON_CLI === "1"
+          ? "Upgrade Raccoon (unavailable until the standalone release)"
+          : "Upgrade OpenCode to the latest or a specific version", // raccoon_change - brand upgrade help
       aliases: ["update"],
       params: {
         target: Argument.string("target").pipe(
@@ -73,7 +86,10 @@ const Root = Spec.make(typeof OPENCODE_CLI_NAME === "string" ? OPENCODE_CLI_NAME
       },
     }),
     Spec.make("uninstall", {
-      description: "Uninstall OpenCode and remove all related files",
+      description:
+        process.env.RACCOON_CLI === "1"
+          ? "Uninstall Raccoon (unavailable until the standalone release)"
+          : "Uninstall OpenCode and remove all related files", // raccoon_change - brand uninstall help
       params: {
         keepConfig: Flag.boolean("keep-config").pipe(
           Flag.withAlias("c"),
@@ -318,7 +334,7 @@ const Root = Spec.make(typeof OPENCODE_CLI_NAME === "string" ? OPENCODE_CLI_NAME
       },
     }),
     Spec.make("mini", {
-      description: "Start the minimal interactive interface",
+      description: process.env.RACCOON_CLI === "1" ? "Start the Raccoon minimal interactive interface" : "Start the minimal interactive interface", // raccoon_change - brand mini help
       params: {
         ...ServerParams,
         continue: Flag.boolean("continue").pipe(
@@ -354,7 +370,7 @@ const Root = Spec.make(typeof OPENCODE_CLI_NAME === "string" ? OPENCODE_CLI_NAME
       },
     }),
     Spec.make("run", {
-      description: "Run OpenCode with a message",
+      description: process.env.RACCOON_CLI === "1" ? "Run Raccoon with a message" : "Run OpenCode with a message", // raccoon_change - brand run help
       params: {
         ...ServerParams,
         message: Argument.string("message").pipe(
@@ -515,7 +531,7 @@ const Root = Spec.make(typeof OPENCODE_CLI_NAME === "string" ? OPENCODE_CLI_NAME
       },
     }),
     Spec.make("serve", {
-      description: "Start the v2 API and web server",
+      description: process.env.RACCOON_CLI === "1" ? "Start the Raccoon API and web server" : "Start the v2 API and web server", // raccoon_change - brand serve help
       params: {
         hostname: Flag.string("hostname").pipe(Flag.optional),
         port: Flag.integer("port").pipe(Flag.optional),

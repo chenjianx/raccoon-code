@@ -11,19 +11,23 @@ export default Runtime.handler(
   Commands.commands.upgrade,
   Effect.fn("cli.upgrade")(
     function* (input) {
+      // raccoon_change - report the active product in upgrade messages
+      const product = process.env.RACCOON_CLI === "1" ? "Raccoon" : "OpenCode"
       intro("Upgrade")
       const updater = yield* Updater.Service
       const method = Option.getOrUndefined(input.method) ?? (yield* updater.method())
       if (!method)
         return yield* Effect.fail(
-          new Error("Could not detect the installation method. Pass --method to choose how to upgrade OpenCode."),
+          // raccoon_change - report the active product in upgrade messages
+          new Error(`Could not detect the installation method. Pass --method to choose how to upgrade ${product}.`),
         )
 
       log.info(`Using method: ${method}`)
       const target = Option.getOrUndefined(input.target) ?? (yield* updater.latest())
       const version = target.trim().replace(/^v/, "")
       if (version === OPENCODE_VERSION) {
-        log.warn(`OpenCode upgrade skipped: ${version} is already installed`)
+        // raccoon_change - report the active product in upgrade messages
+        log.warn(`${product} upgrade skipped: ${version} is already installed`)
         outro("Done")
         return
       }

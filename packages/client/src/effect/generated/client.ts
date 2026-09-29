@@ -115,6 +115,8 @@ import type {
   ModelDefaultOutput,
   GenerateTextInput,
   GenerateTextOutput,
+  FimCompleteInput,
+  FimCompleteOutput,
   ProviderListInput,
   ProviderListOutput,
   ProviderGetInput,
@@ -843,6 +845,27 @@ const EndpointGenerateText = (raw: RawClient["server.generate"]) => (input: Gene
 
 const adaptGroupGenerate = (raw: RawClient["server.generate"]) => ({ text: EndpointGenerateText(raw) })
 
+const EndpointFimComplete = (raw: RawClient["server.fim"]) => (input: FimCompleteInput) =>
+  preserveStream<FimCompleteOutput>()(
+    Stream.unwrap(
+      raw["fim.complete"]({
+        payload: {
+          prefix: input["prefix"],
+          suffix: input["suffix"],
+          model: input["model"],
+          language: input["language"],
+          maxTokens: input["maxTokens"],
+          temperature: input["temperature"],
+        },
+      }).pipe(
+        Effect.mapError(mapClientError),
+        Effect.map((stream) => stream.pipe(Stream.mapError(mapClientError))),
+      ),
+    ),
+  )
+
+const adaptGroupFim = (raw: RawClient["server.fim"]) => ({ complete: EndpointFimComplete(raw) })
+
 const EndpointProviderList = (raw: RawClient["server.provider"]) => (input?: ProviderListInput) =>
   preserveEffect<ProviderListOutput>()(
     raw["provider.list"]({ query: { location: input?.["location"] } }).pipe(Effect.mapError(mapClientError)),
@@ -1550,6 +1573,7 @@ const adaptClient = (raw: RawClient) => ({
   message: adaptGroupMessage(raw["server.message"]),
   model: adaptGroupModel(raw["server.model"]),
   generate: adaptGroupGenerate(raw["server.generate"]),
+  fim: adaptGroupFim(raw["server.fim"]),
   provider: adaptGroupProvider(raw["server.provider"]),
   integration: adaptGroupIntegration(raw["server.integration"]),
   mcp: adaptGroupMcp(raw["server.mcp"]),

@@ -26,6 +26,7 @@ type SplashInput = {
   title: string | undefined
   session_id: string
   mono?: boolean
+  raccoon?: boolean // raccoon_change - allow branded mini scrollback
 }
 
 type SplashWriterInput = SplashInput & {
@@ -181,7 +182,7 @@ function buildExit(input: SplashWriterInput, ctx: ScrollbackRenderContext): Scro
   const body_left = (mark[0]?.length ?? 0) + 2
   const session = "Session  "
   const label = "Continue "
-  const command = `opencode mini -s ${meta.session_id}`
+  const command = `${(input.raccoon ?? process.env.RACCOON_CLI === "1") ? "raccoon" : "opencode"} mini -s ${meta.session_id}` // raccoon_change - show executable resume command
   const wide = body_left + stringWidth(label + command) <= width
   const commandHeight = wide ? 1 : Math.ceil(stringWidth(command) / width)
 
@@ -273,7 +274,14 @@ export function entrySplash(input: {
   }
 }
 
-export function entrySplashLayout(input: { width: number; version: string; detail?: string; mono?: boolean }) {
+// raccoon_change - allow Raccoon mini entry title
+export function entrySplashLayout(input: {
+  width: number
+  version: string
+  detail?: string
+  mono?: boolean
+  raccoon?: boolean
+}) {
   const detail = input.detail ?? ""
   const segments = detail.split(/[/\\]/).filter(Boolean)
   const leaf = segments.at(-1) ?? detail
@@ -285,9 +293,10 @@ export function entrySplashLayout(input: { width: number; version: string; detai
     .map((_, index) => ellipsis + slash + segments.slice(index + 1).join(slash))
     .reverse()
     .filter((path) => stringWidth(path) < stringWidth(detail))
-  let layout = { label: Locale.takeWidth("oc mini", input.width), version: "", path: "", metadata: "" }
+  const name = (input.raccoon ?? process.env.RACCOON_CLI === "1") ? "Raccoon" : "oc mini" // raccoon_change - brand mini title
+  let layout = { label: Locale.takeWidth(name, input.width), version: "", path: "", metadata: "" }
   const stages = [
-    { label: `${input.mono ? "[O]" : "▪"} oc mini` },
+    { label: `${input.mono ? "[O]" : "▪"} ${name}` }, // raccoon_change - brand entry splash label
     ...(leaf ? [{ path: leaf }] : []),
     ...(input.version ? [{ version: input.version }] : []),
     ...paths.concat(detail ? [detail] : []).map((path) => ({ path })),

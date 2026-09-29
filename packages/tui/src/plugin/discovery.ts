@@ -7,11 +7,11 @@ export { localSource }
 
 export async function localPluginDirectories(cwd: string, configDirectory: string) {
   const projectDirectory = await localProjectDirectory(cwd)
-  const projectConfig = path.join(projectDirectory, ".opencode")
+  const projectConfig = [".opencode", ".raccoon"].map((name) => path.join(projectDirectory, name)) // raccoon_change - include both project plugin roots
   const directories = [configDirectory, ...projectConfigDirectories(projectDirectory, cwd)]
   const exists = await Promise.all(
     directories.map(async (directory) => {
-      if (directory === configDirectory || directory === projectConfig) return true
+      if (directory === configDirectory || projectConfig.includes(directory)) return true // raccoon_change - preserve root discovery
       return await stat(directory).then(
         (info) => info.isDirectory(),
         (error) => (isMissingPath(error) ? false : Promise.reject(error)),

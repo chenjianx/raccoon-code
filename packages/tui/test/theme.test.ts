@@ -143,3 +143,16 @@ test("theme directories include global config before project directories", async
     project: { source: "project" },
   })
 })
+
+// raccoon_change start - load Raccoon themes alongside legacy OpenCode themes
+test("Raccoon project themes override legacy project themes", async () => {
+  await using tmp = await tmpdir()
+  const global = path.join(tmp.path, "global")
+  const project = path.join(tmp.path, "repo")
+  await mkdir(path.join(project, ".opencode", "themes"), { recursive: true })
+  await mkdir(path.join(project, ".raccoon", "themes"), { recursive: true })
+  await writeFile(path.join(project, ".opencode", "themes", "custom.json"), JSON.stringify({ source: "opencode" }))
+  await writeFile(path.join(project, ".raccoon", "themes", "custom.json"), JSON.stringify({ source: "raccoon" }))
+  await expect(discoverThemes(configDirectories(global, project))).resolves.toEqual({ custom: { source: "raccoon" } })
+})
+// raccoon_change end

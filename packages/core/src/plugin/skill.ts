@@ -11,6 +11,7 @@ import { Config } from "../config.js"
 import os from "os"
 import opencodeContent from "./skill/opencode.md" with { type: "text" }
 import reportContent from "./skill/report.md" with { type: "text" }
+import { RaccoonSkill } from "../raccoon/skill.js" // raccoon_change - register bundled Raccoon skills
 
 export const OpencodeContent = opencodeContent
 export const ReportContent = reportContent
@@ -23,8 +24,16 @@ const REPORT_DESCRIPTION =
 export const Plugin = define({
   id: "opencode.skill",
   effect: Effect.fn(function* (ctx) {
+    yield* RaccoonSkill.refreshKnowledge(ctx) // raccoon_change - refresh knowledge credential through native integration
+    const knowledge = ctx.app.name === "raccoon" ? yield* RaccoonSkill.knowledge() : undefined // raccoon_change - materialize only for Raccoon
     const reportContent = yield* reportContentWithDiagnostics(ctx.app)
     yield* ctx.skill.transform((editor) => {
+      // raccoon_change start - add Raccoon marketplace and knowledge skills
+      if (knowledge) {
+        editor.add(RaccoonSkill.marketplace)
+        editor.add(knowledge)
+      }
+      // raccoon_change end
       editor.add(
         Skill.Info.make({
           id: Skill.ID.make("opencode"),

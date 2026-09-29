@@ -68,7 +68,8 @@ export function DialogPair() {
           </box>
           <Show when={value.loopback}>
             <text fg={theme.text.muted} wrapMode="word">
-              Run `opencode service set hostname 0.0.0.0` to access the service remotely.
+              Run `{process.env.RACCOON_CLI === "1" ? "raccoon" : "opencode"} service set hostname 0.0.0.0` to access
+              the service remotely. {/* raccoon_change - show matching CLI command */}
             </text>
           </Show>
         </box>

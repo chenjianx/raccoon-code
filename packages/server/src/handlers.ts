@@ -30,6 +30,7 @@ import { VcsHandler } from "./handlers/vcs"
 import { EventFeed } from "./event-feed"
 import { MigrationHandler } from "./handlers/migration"
 import { ConfigHandler } from "./handlers/config"
+import { RaccoonFimHandler } from "./handlers/raccoon-fim"
 
 export const handlers = Layer.mergeAll(
   ServerHandler,
@@ -42,6 +43,7 @@ export const handlers = Layer.mergeAll(
   MessageHandler,
   ModelHandler,
   GenerateHandler,
+  RaccoonFimHandler,
   ProviderHandler,
   IntegrationHandler,
   WebSearchHandler,

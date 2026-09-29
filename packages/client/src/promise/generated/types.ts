@@ -231,6 +231,8 @@ export type MoneyUSDPerMillionTokens = number
 
 export type GenerateTextResponse = { data: { text: string } }
 
+export type RaccoonFimChunk = { type: "delta"; text: string } | { type: "done" } | { type: "error"; message: string }
+
 export type IntegrationCommandMethod = { id: string; type: "command"; label: string; command: Array<string> }
 
 export type IntegrationEnvMethod = { type: "env"; names: Array<string> }
@@ -1429,6 +1431,7 @@ export type FormStringField = {
   maxLength?: number
   pattern?: string
   placeholder?: string
+  secret?: boolean
   default?: string
   options?: Array<FormOption>
   custom?: boolean
@@ -1599,6 +1602,7 @@ export type FormStringField1 = {
   maxLength?: number
   pattern?: string
   placeholder?: string
+  secret?: boolean
   default?: string
   options?: Array<FormOption>
   custom?: boolean
@@ -4529,6 +4533,7 @@ export type SessionFormCreateInput = {
             readonly maxLength?: number
             readonly pattern?: string
             readonly placeholder?: string
+            readonly secret?: boolean
             readonly default?: string
             readonly options?: ReadonlyArray<{
               readonly value: string
@@ -4631,6 +4636,7 @@ export type SessionFormCreateInput = {
             readonly maxLength?: number
             readonly pattern?: string
             readonly placeholder?: string
+            readonly secret?: boolean
             readonly default?: string
             readonly options?: ReadonlyArray<{
               readonly value: string
@@ -4740,6 +4746,7 @@ export type SessionFormCreateInput = {
             readonly maxLength?: number
             readonly pattern?: string
             readonly placeholder?: string
+            readonly secret?: boolean
             readonly default?: string
             readonly options?: ReadonlyArray<{
               readonly value: string
@@ -4842,6 +4849,7 @@ export type SessionFormCreateInput = {
             readonly maxLength?: number
             readonly pattern?: string
             readonly placeholder?: string
+            readonly secret?: boolean
             readonly default?: string
             readonly options?: ReadonlyArray<{
               readonly value: string
@@ -4951,6 +4959,7 @@ export type SessionFormCreateInput = {
             readonly maxLength?: number
             readonly pattern?: string
             readonly placeholder?: string
+            readonly secret?: boolean
             readonly default?: string
             readonly options?: ReadonlyArray<{
               readonly value: string
@@ -5053,6 +5062,7 @@ export type SessionFormCreateInput = {
             readonly maxLength?: number
             readonly pattern?: string
             readonly placeholder?: string
+            readonly secret?: boolean
             readonly default?: string
             readonly options?: ReadonlyArray<{
               readonly value: string
@@ -5162,6 +5172,7 @@ export type SessionFormCreateInput = {
             readonly maxLength?: number
             readonly pattern?: string
             readonly placeholder?: string
+            readonly secret?: boolean
             readonly default?: string
             readonly options?: ReadonlyArray<{
               readonly value: string
@@ -5264,6 +5275,7 @@ export type SessionFormCreateInput = {
             readonly maxLength?: number
             readonly pattern?: string
             readonly placeholder?: string
+            readonly secret?: boolean
             readonly default?: string
             readonly options?: ReadonlyArray<{
               readonly value: string
@@ -5490,6 +5502,59 @@ export type GenerateTextInput = {
 }
 
 export type GenerateTextOutput = GenerateTextResponse["data"]
+
+export type FimCompleteInput = {
+  readonly prefix: {
+    readonly prefix: string
+    readonly suffix?: string | undefined
+    readonly model?: string | undefined
+    readonly language?: string | undefined
+    readonly maxTokens?: number | undefined
+    readonly temperature?: number | undefined
+  }["prefix"]
+  readonly suffix?: {
+    readonly prefix: string
+    readonly suffix?: string | undefined
+    readonly model?: string | undefined
+    readonly language?: string | undefined
+    readonly maxTokens?: number | undefined
+    readonly temperature?: number | undefined
+  }["suffix"]
+  readonly model?: {
+    readonly prefix: string
+    readonly suffix?: string | undefined
+    readonly model?: string | undefined
+    readonly language?: string | undefined
+    readonly maxTokens?: number | undefined
+    readonly temperature?: number | undefined
+  }["model"]
+  readonly language?: {
+    readonly prefix: string
+    readonly suffix?: string | undefined
+    readonly model?: string | undefined
+    readonly language?: string | undefined
+    readonly maxTokens?: number | undefined
+    readonly temperature?: number | undefined
+  }["language"]
+  readonly maxTokens?: {
+    readonly prefix: string
+    readonly suffix?: string | undefined
+    readonly model?: string | undefined
+    readonly language?: string | undefined
+    readonly maxTokens?: number | undefined
+    readonly temperature?: number | undefined
+  }["maxTokens"]
+  readonly temperature?: {
+    readonly prefix: string
+    readonly suffix?: string | undefined
+    readonly model?: string | undefined
+    readonly language?: string | undefined
+    readonly maxTokens?: number | undefined
+    readonly temperature?: number | undefined
+  }["temperature"]
+}
+
+export type FimCompleteOutput = RaccoonFimChunk
 
 export type ProviderListInput = {
   readonly location?: { readonly location?: { readonly directory?: string | undefined } | undefined }["location"]

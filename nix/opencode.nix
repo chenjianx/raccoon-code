@@ -56,6 +56,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
 
     cd ./packages/cli
     bun --bun ./script/build.ts --single --skip-install
+    bun --bun ./script/build.ts --single --skip-install --raccoon-only
 
     runHook postBuild
   '';
@@ -64,6 +65,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     runHook preInstall
 
     install -Dm755 dist/cli-*/bin/opencode $out/bin/opencode
+    install -Dm755 dist/raccoon/raccoon-*/bin/raccoon $out/bin/raccoon
 
     # OpenTUI dlopens Wayland for clipboard images.
     wrapProgram $out/bin/opencode \
@@ -80,6 +82,17 @@ stdenvNoCC.mkDerivation (finalAttrs: {
       ''}
 
     ln -s opencode $out/bin/opencode2
+    wrapProgram $out/bin/raccoon \
+      --prefix PATH : ${
+        lib.makeBinPath (
+          [
+            ripgrep
+          ]
+          ++ lib.optional stdenvNoCC.hostPlatform.isDarwin sysctl
+        )
+      } ${lib.optionalString stdenvNoCC.hostPlatform.isLinux ''
+        --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ wayland ]}
+      ''}
 
     runHook postInstall
   '';

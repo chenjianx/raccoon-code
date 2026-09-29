@@ -945,7 +945,17 @@ describe("Config", () => {
               {
                 type: "entries",
                 path: tmp.path,
-                names: [".agents", ".claude", ".opencode", "opencode.json", "opencode.jsonc"],
+                names: [
+                  ".agents",
+                  ".claude",
+                  ".opencode",
+                  ".raccoon",
+                  "config.json",
+                  "opencode.json",
+                  "opencode.jsonc",
+                  "raccoon.json",
+                  "raccoon.jsonc",
+                ], // raccoon_change - include Raccoon config watches
               },
             ])
           }).pipe(Effect.provide(testLayer(tmp.path, undefined, undefined, undefined, Watcher.testLayer)))
@@ -1065,7 +1075,8 @@ describe("Config", () => {
     ),
   )
 
-  it.live("does not load legacy config.json files", () =>
+  // raccoon_change - preserve dev config.json support
+  it.live("loads legacy config.json files for Raccoon compatibility", () =>
     Effect.acquireDisposable(Effect.promise(() => tmpdir())).pipe(
       Effect.flatMap((tmp) =>
         Effect.gen(function* () {
@@ -1077,7 +1088,7 @@ describe("Config", () => {
             const config = yield* Config.Service
             const documents = (yield* config.entries()).filter((entry) => entry.type === "document")
 
-            expect(documents).toHaveLength(0)
+            expect(documents.map((document) => document.info.$schema)).toEqual(["legacy"]) // raccoon_change - accept config.json
           }).pipe(Effect.provide(testLayer(tmp.path)))
         }),
       ),
@@ -1511,7 +1522,17 @@ describe("Config", () => {
             expect(yield* watcher.subscriptions()).toContainEqual({
               path: tmp.path,
               type: "entries",
-              names: [".agents", ".claude", ".opencode", "opencode.json", "opencode.jsonc"],
+              names: [
+                ".agents",
+                ".claude",
+                ".opencode",
+                ".raccoon",
+                "config.json",
+                "opencode.json",
+                "opencode.jsonc",
+                "raccoon.json",
+                "raccoon.jsonc",
+              ], // raccoon_change - include Raccoon config watches
             })
           }).pipe(Effect.provide(testLayer(tmp.path)))
         }),

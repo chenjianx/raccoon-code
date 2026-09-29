@@ -1513,6 +1513,24 @@ export interface GenerateApi<E = never> {
   readonly text: GenerateTextOperation<E>
 }
 
+export type FimCompleteInput = {
+  readonly prefix: string
+  readonly suffix?: string | undefined
+  readonly model?: string | undefined
+  readonly language?: string | undefined
+  readonly maxTokens?: number | undefined
+  readonly temperature?: number | undefined
+}
+export type FimCompleteOutput =
+  | { readonly type: "delta"; readonly text: string }
+  | { readonly type: "done" }
+  | { readonly type: "error"; readonly message: string }
+export type FimCompleteOperation<E = never> = (input: FimCompleteInput) => Stream.Stream<FimCompleteOutput, E>
+
+export interface FimApi<E = never> {
+  readonly complete: FimCompleteOperation<E>
+}
+
 export type ProviderListInput = { readonly location?: { readonly directory?: string | undefined } | undefined }
 export type ProviderListOutput = { readonly location: Location.PublicRef; readonly data: ReadonlyArray<Provider.Info> }
 export type ProviderListOperation<E = never> = (input?: ProviderListInput) => Effect.Effect<ProviderListOutput, E>
@@ -2342,6 +2360,7 @@ export interface AppApi<E = never> {
   readonly message: MessageApi<E>
   readonly model: ModelApi<E>
   readonly generate: GenerateApi<E>
+  readonly fim: FimApi<E>
   readonly provider: ProviderApi<E>
   readonly integration: IntegrationApi<E>
   readonly mcp: McpApi<E>

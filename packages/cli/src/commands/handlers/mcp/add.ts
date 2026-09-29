@@ -37,13 +37,30 @@ export default Runtime.handler(
   }),
 )
 
-export async function resolveConfigPath(directory: string) {
-  const candidates = [
-    path.join(directory, "opencode.json"),
-    path.join(directory, "opencode.jsonc"),
-    path.join(directory, ".opencode", "opencode.json"),
-    path.join(directory, ".opencode", "opencode.jsonc"),
-  ]
+// raccoon_change start - write MCP and server plugin configuration to Raccoon files when using the Raccoon CLI
+export async function resolveConfigPath(
+  directory: string,
+  app = process.env.RACCOON_CLI === "1" ? "raccoon" : "opencode",
+) {
+  const candidates =
+    app === "raccoon"
+      ? [
+          path.join(directory, "raccoon.json"),
+          path.join(directory, "raccoon.jsonc"),
+          path.join(directory, "opencode.json"),
+          path.join(directory, "opencode.jsonc"),
+          path.join(directory, ".raccoon", "raccoon.json"),
+          path.join(directory, ".raccoon", "raccoon.jsonc"),
+          path.join(directory, ".opencode", "opencode.json"),
+          path.join(directory, ".opencode", "opencode.jsonc"),
+        ]
+      : [
+          path.join(directory, "opencode.json"),
+          path.join(directory, "opencode.jsonc"),
+          path.join(directory, ".opencode", "opencode.json"),
+          path.join(directory, ".opencode", "opencode.jsonc"),
+        ]
+  // raccoon_change end
   for (const candidate of candidates) {
     if (
       await stat(candidate).then(

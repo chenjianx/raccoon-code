@@ -163,6 +163,15 @@ test.each(["entry", "exit"])("%s commits one scrollback snapshot without reflow 
   }
 })
 
+// raccoon_change start - show the Raccoon command in mini scrollback
+test("Raccoon mini splash uses the Raccoon name and resume command", async () => {
+  expect(entrySplashLayout({ width: 80, version: "local", raccoon: true }).label).toBe("▪ Raccoon")
+  const result = await renderSplash(exitSplash({ title: "Review", session_id: sessionID, theme, raccoon: true }), 80)
+  expect(result.rows.join("\n")).toContain(`raccoon mini -s ${sessionID}`)
+  expect(result.rows.join("\n")).not.toContain("opencode mini")
+})
+// raccoon_change end
+
 test.each(
   [
     { width: 16, showSession: true },

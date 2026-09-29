@@ -79,7 +79,7 @@ export default Runtime.handler(Commands, (input) =>
     const service = server.service
     yield* run({
       app: {
-        name: process.env.OPENCODE_CLIENT ?? OPENCODE_ARTIFACT,
+        name: process.env.RACCOON_CLI === "1" ? "raccoon" : (process.env.OPENCODE_CLIENT ?? OPENCODE_ARTIFACT), // raccoon_change - identify the TUI as Raccoon
         version: OPENCODE_VERSION,
         channel: process.env.OPENCODE_TUI_CHANNEL ?? OPENCODE_CHANNEL,
       },

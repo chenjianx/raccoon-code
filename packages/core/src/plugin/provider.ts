@@ -23,6 +23,8 @@ import { OpenRouterPlugin } from "./provider/openrouter.js"
 import { PerplexityPlugin } from "./provider/perplexity.js"
 import { PoePlugin } from "./provider/poe.js"
 import { PromptCacheKeyPlugin } from "./provider/prompt-cache-key.js"
+// raccoon_change - register the native Raccoon provider plugin
+import { RaccoonPlugin } from "./provider/raccoon.js"
 import { SapAICorePlugin } from "./provider/sap-ai-core.js"
 import { VercelPlugin } from "./provider/vercel.js"
 import { VenicePlugin } from "./provider/venice.js"
@@ -56,6 +58,8 @@ export const ProviderPlugins: PluginInternal.InternalPlugin[] = [
   PerplexityPlugin,
   PoePlugin,
   PromptCacheKeyPlugin,
+  // raccoon_change - include Raccoon authentication and model discovery
+  RaccoonPlugin,
   SapAICorePlugin,
   VercelPlugin,
   VenicePlugin,

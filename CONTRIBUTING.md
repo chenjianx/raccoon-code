@@ -59,6 +59,19 @@ bun run dev:www
 - `packages/desktop`: Electron desktop application
 - `packages/plugin`: plugin API
 
+### Building Raccoon CLI
+
+Build a standalone binary for the current platform from `packages/cli`:
+
+```bash
+bun install --frozen-lockfile
+cd packages/cli
+bunx bun@1.4.2 script/build.ts --raccoon-only --single --skip-install
+./dist/raccoon/raccoon-<platform>/bin/raccoon --version
+```
+
+Replace `<platform>` with your platform, such as `darwin-arm64` or `linux-x64`. The repository's `install --raccoon --binary <path>` command installs the result in `~/.raccoon/bin`.
+
 ### Verification
 
 Run typechecks, and tests where defined, from the affected package rather than the repository root:

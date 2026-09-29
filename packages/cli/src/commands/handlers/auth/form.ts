@@ -18,9 +18,13 @@ export const answerForm = Effect.fn("cli.auth.form")(function* (
     const separator = item.indexOf("=")
     if (separator < 1) return yield* Effect.fail(new Error("Expected --answer key=value"))
     const key = item.slice(0, separator)
-    if (!fields?.some((field) => field.key === key)) {
+    const field = fields?.find((field) => field.key === key)
+    if (!field) {
       return yield* Effect.fail(new Error(`Unknown form field: ${key}`))
     }
+    // raccoon_change - keep password values out of command arguments and shell history
+    if (field.type === "string" && field.secret)
+      return yield* Effect.fail(new Error(`Secret form field requires interactive input: ${key}`))
     supplied.set(key, item.slice(separator + 1))
   }
   if (!fields) return undefined
@@ -122,6 +126,12 @@ const answerField = Effect.fn("cli.auth.form.field")(function* (field: FormField
     }
     return selected
   }
+  // raccoon_change start - mask secret authentication fields in CLI prompts
+  if (field.type === "string" && field.secret) {
+    const value = yield* prompt<string>(() => password({ message, validate: (input) => validateText(field, input) }))
+    return value || undefined
+  }
+  // raccoon_change end
   if (field.type === "string" && field.options) {
     const options: Array<Option<string | typeof custom | typeof skip>> = field.options.map((option) => ({
       value: option.value,

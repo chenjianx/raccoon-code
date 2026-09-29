@@ -45,15 +45,18 @@ const CUSTOM = Symbol("custom")
 const OPEN = Symbol("open")
 const SUBMIT = Symbol("submit")
 
-export function integrationOptions(list: IntegrationInfo[]) {
+// raccoon_change start - recommend Raccoon first in its CLI
+export function integrationOptions(list: IntegrationInfo[], raccoon = process.env.RACCOON_CLI === "1") {
   return list.toSorted(
     (a, b) =>
+      (raccoon ? Number(b.id === "raccoon") - Number(a.id === "raccoon") : 0) ||
       Number(b.metadata?.source === "mcp") - Number(a.metadata?.source === "mcp") ||
       (INTEGRATION_PRIORITY[a.id] ?? 99) - (INTEGRATION_PRIORITY[b.id] ?? 99) ||
       a.name.localeCompare(b.name) ||
       a.id.localeCompare(b.id),
   )
 }
+// raccoon_change end
 
 export function connectMethods(integration: IntegrationInfo): ConnectMethod[] {
   return integration.methods
@@ -104,13 +107,19 @@ export function DialogIntegration(
       const methods = connectMethods(integration)
       const credentials = credentialConnections(integration)
       let category = "Services"
-      if (integration.id in INTEGRATION_PRIORITY) category = "Popular"
+      if (integration.id in INTEGRATION_PRIORITY || (process.env.RACCOON_CLI === "1" && integration.id === "raccoon"))
+        category = "Popular" // raccoon_change - mark Raccoon as popular
       if (integration.metadata?.source === "mcp") category = "MCP"
       const status = integration.connections[0]?.status
       return {
         title: integration.name,
         value: integration.id,
-        description: methods.length === 0 ? "Environment only" : undefined,
+        description:
+          methods.length === 0
+            ? "Environment only"
+            : process.env.RACCOON_CLI === "1" && integration.id === "raccoon"
+              ? "(Recommended)"
+              : undefined, // raccoon_change - label Raccoon recommendation
         footer: status ? "Sign in required →" : connectionSummary(integration) || undefined,
         footerColor: status ? theme.text.feedback.warning.base : undefined,
         category,
@@ -594,31 +603,37 @@ function OAuthAuto(props: {
   Keymap.createLayer(() => ({
     mode: "modal",
     commands: [
-      {
-        bind: "o",
-        title: "Open authorization URL",
-        group: "Dialog",
-        run: () => {
-          openUrl(props.attempt.url).catch(() =>
-            toast.show({
-              message: "Could not open the browser. Copy the URL and continue manually.",
-              variant: "error",
-            }),
-          )
-        },
-      },
-      {
-        bind: "c",
-        title: "Copy authorization details",
-        group: "Dialog",
-        run: () => {
-          const value = props.attempt.instructions.match(/[A-Z0-9]{4}-[A-Z0-9]{4,5}/)?.[0] ?? props.attempt.url
-          clipboard
-            .write(value)
-            .then(() => toast.show({ message: "Copied to clipboard", variant: "info" }))
-            .catch(toast.error)
-        },
-      },
+      // raccoon_change start - direct phone authorization has no browser URL
+      ...(props.attempt.url
+        ? [
+            {
+              bind: "o",
+              title: "Open authorization URL",
+              group: "Dialog",
+              run: () => {
+                openUrl(props.attempt.url).catch(() =>
+                  toast.show({
+                    message: "Could not open the browser. Copy the URL and continue manually.",
+                    variant: "error",
+                  }),
+                )
+              },
+            },
+            {
+              bind: "c",
+              title: "Copy authorization details",
+              group: "Dialog",
+              run: () => {
+                const value = props.attempt.instructions.match(/[A-Z0-9]{4}-[A-Z0-9]{4,5}/)?.[0] ?? props.attempt.url
+                clipboard
+                  .write(value)
+                  .then(() => toast.show({ message: "Copied to clipboard", variant: "info" }))
+                  .catch(toast.error)
+              },
+            },
+          ]
+        : []),
+      // raccoon_change end
     ],
   }))
 
@@ -667,8 +682,8 @@ function OAuthAuto(props: {
       url={props.attempt.url}
       instructions={props.attempt.instructions}
       message="Waiting for authorization…"
-      copy
-      open
+      copy={!!props.attempt.url} // raccoon_change - only show browser actions when URL exists
+      open={!!props.attempt.url} // raccoon_change - direct phone sign-in has no URL
     />
   )
 }
@@ -802,7 +817,8 @@ function fieldAnswer(
 ): Promise<FormValue | undefined | typeof CANCELLED> {
   if (field.type === "external") return externalAnswer(dialog, title, field)
   if (field.type === "multiselect") return multiselectAnswer(dialog, title, field)
-  if (field.type === "boolean" || (field.type === "string" && field.options)) {
+  // raccoon_change - secret fields always use masked text input
+  if (field.type === "boolean" || (field.type === "string" && field.options && !field.secret)) {
     return selectAnswer(dialog, title, field)
   }
   return textAnswer(dialog, title, field)
@@ -870,9 +886,10 @@ function textAnswer(
           <DialogPrompt
             title={formLabel(field) || title}
             placeholder={field.type === "string" ? field.placeholder : undefined}
+            secret={field.type === "string" && field.secret === true} // raccoon_change - mask authentication passwords
             value={initial}
             onConfirm={(input) => {
-              const text = input.trim()
+              const text = field.type === "string" && field.secret ? input : input.trim() // raccoon_change - preserve password exactly
               const value = text === "" && !field.required ? undefined : field.type === "string" ? text : Number(text)
               const invalid = formValidateValue(field, value)
               if (invalid) {

@@ -33,6 +33,7 @@ import { WorktreeGroup } from "./groups/worktree.js"
 import { VcsGroup } from "./groups/vcs.js"
 import { MigrationGroup } from "./groups/migration.js"
 import { ConfigGroup } from "./groups/config.js"
+import { RaccoonFimGroup } from "./groups/raccoon-fim.js"
 
 type LocationGroups<LocationId extends HttpApiMiddleware.AnyId> =
   | HttpApiGroup.AddMiddleware<typeof AgentGroup, LocationId>
@@ -52,6 +53,7 @@ type LocationGroups<LocationId extends HttpApiMiddleware.AnyId> =
   | HttpApiGroup.AddMiddleware<typeof ReferenceGroup, LocationId>
   | HttpApiGroup.AddMiddleware<typeof VcsGroup, LocationId>
   | HttpApiGroup.AddMiddleware<typeof ConfigGroup, LocationId>
+  | HttpApiGroup.AddMiddleware<typeof RaccoonFimGroup, LocationId>
 
 type SessionGroups<
   SessionLocationId extends HttpApiMiddleware.AnyId,
@@ -161,6 +163,7 @@ const makeApiFromGroup = <
     .add(MessageGroup)
     .add(ModelGroup.middleware(locationMiddleware))
     .add(GenerateGroup)
+    .add(RaccoonFimGroup.middleware(locationMiddleware))
     .add(ProviderGroup.middleware(locationMiddleware))
     .add(IntegrationGroup.middleware(locationMiddleware))
     .add(McpGroup.middleware(locationMiddleware))

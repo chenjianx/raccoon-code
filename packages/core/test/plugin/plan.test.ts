@@ -10,6 +10,9 @@ import { Model } from "@opencode/core/model"
 import { PlanPlugin } from "@opencode/core/plugin/plan"
 import { Permission } from "@opencode/core/permission"
 import { Provider } from "@opencode/core/provider"
+import { Project } from "@opencode/core/project" // raccoon_change - model a VCS project for Raccoon plans
+import { Location } from "@opencode/core/location" // raccoon_change - model a VCS project for Raccoon plans
+import { AbsolutePath } from "@opencode/core/schema" // raccoon_change - model a VCS project for Raccoon plans
 import { Session } from "@opencode/core/session"
 import { SessionEvent } from "@opencode/core/session/event"
 import { SessionInbox } from "@opencode/core/session/inbox"
@@ -35,7 +38,7 @@ const agentSelected = (agent: Agent.ID, previous: Agent.ID): SessionEvent.AgentS
 })
 
 /** Runs the plan plugin against stubbed domains, capturing persisted reminders and the context hook. */
-const run = Effect.fnUntraced(function* (events: ReadonlyArray<SessionEvent.AgentSelected> = []) {
+const run = Effect.fnUntraced(function* (events: ReadonlyArray<SessionEvent.AgentSelected> = [], app = "test", location?: Location.Info) { // raccoon_change - verify Raccoon plan location
   const persisted = new Array<string>()
   let contextHook: ((input: SessionContext) => Effect.Effect<void>) | undefined
   let toolHook: ((input: ToolHooks["execute.after"]) => Effect.Effect<void>) | undefined
@@ -53,6 +56,8 @@ const run = Effect.fnUntraced(function* (events: ReadonlyArray<SessionEvent.Agen
   const driver = Environment.makeMemoryDriver()
   yield* PlanPlugin.Plugin.effect(
     host({
+      app: { name: app, version: "test", channel: "test" }, // raccoon_change - simulate Raccoon host
+      ...(location ? { location } : {}), // raccoon_change - simulate project-scoped Raccoon plans
       agent: {
         get: () => Effect.die("unused agent.get"),
         list: () => Effect.die("unused agent.list"),
@@ -161,6 +166,25 @@ const reminders = Effect.gen(function* () {
 })
 
 describe("plan plugin reminders", () => {
+  // raccoon_change start - keep Raccoon plans in the project directory
+  it.effect("uses project .raccoon/plans for the Raccoon host", () =>
+    Effect.gen(function* () {
+      const { persisted, contextHook } = yield* run([], "raccoon", new Location.Info({
+        directory: AbsolutePath.make("/workspace"),
+        project: { id: Project.ID.make("project"), directory: AbsolutePath.make("/workspace"), canonical: AbsolutePath.make("/main") },
+      }))
+      yield* contextHook(request(plan, []))
+      expect(persisted[0]).toContain(path.join("/workspace", ".raccoon", "plans"))
+    }),
+  )
+  it.effect("uses the app data plans directory without a VCS project", () =>
+    Effect.gen(function* () {
+      const { persisted, contextHook } = yield* run([], "raccoon")
+      yield* contextHook(request(plan, []))
+      expect(persisted[0]).toContain(path.join(Global.Path.data, "plans"))
+    }),
+  )
+  // raccoon_change end
   it.effect("injects enter and leave reminders on agent switches", () =>
     Effect.gen(function* () {
       const { persisted } = yield* run([agentSelected(plan, build), agentSelected(build, plan)])
