@@ -12,8 +12,12 @@ export class SidecarWebviewTransport implements WebviewTransport {
   private ready = false
   private readonly pendingChatMessages: ExtensionToWebview[] = []
   private messageHandler: (message: WebviewToExtension, source: RaccoonWebviewSource) => void = () => {}
+  private loggedIn?: boolean
 
-  constructor(private readonly send: (message: SidecarToHost) => void) {}
+  constructor(
+    private readonly send: (message: SidecarToHost) => void,
+    private readonly onAuthenticationChange: () => void = () => {},
+  ) {}
 
   // Called by the host loop when a webview message arrives over stdin.
   dispatch(message: WebviewToExtension, source: RaccoonWebviewSource) {
@@ -44,6 +48,11 @@ export class SidecarWebviewTransport implements WebviewTransport {
   }
 
   post(source: RaccoonWebviewSource, message: ExtensionToWebview) {
+    if (message.type === "raccoonLoginFinished" && message.error === undefined) this.onAuthenticationChange()
+    this.deliver(message)
+  }
+
+  private deliver(message: ExtensionToWebview) {
     if (!this.ready) {
       this.pendingChatMessages.push(message)
       return
@@ -52,6 +61,10 @@ export class SidecarWebviewTransport implements WebviewTransport {
   }
 
   postState(state: RaccoonState) {
+    if (state.raccoonLoggedIn !== undefined && state.raccoonLoggedIn !== this.loggedIn) {
+      this.loggedIn = state.raccoonLoggedIn
+      this.onAuthenticationChange()
+    }
     const activeSession = state.sessions.find((session) => session.id === state.activeSessionID) ?? state.activeSession
     this.post("chat", { type: "state", state: { ...state, activeSession, view: "chat" } })
   }
@@ -65,7 +78,8 @@ export class SidecarWebviewTransport implements WebviewTransport {
   }
 
   postRaccoonLoginFinished() {
-    this.post("chat", { type: "raccoonLoginFinished" })
+    // ProviderConfig uses this helper to dismiss a cancelled login, without new credentials.
+    this.deliver({ type: "raccoonLoginFinished" })
   }
 
   postCustomProviderSaved(providerID: string) {

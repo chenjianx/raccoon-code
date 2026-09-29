@@ -2,19 +2,21 @@ import { EventEmitter } from "node:events"
 import * as fs from "node:fs/promises"
 import { readFileSync } from "node:fs"
 import * as path from "node:path"
-import type {
-  Disposable,
-  DocumentRangeRef,
-  EditorContext,
-  Emitter,
-  FileSearchResult,
-  HostPlatform,
-  KeyValueStore,
+import {
+  formatTerminalOutput,
+  getAutocompleteModel,
+  gitChangesContext,
+  type Disposable,
+  type DocumentRangeRef,
+  type EditorContext,
+  type Emitter,
+  type FileSearchResult,
+  type HostPlatform,
+  type KeyValueStore,
 } from "@opencode-ai/raccoon-core"
 
-// HostPlatform for the IntelliJ sidecar. Editor/file-search/UI surfaces that require the live
-// IDE are stubbed for the chat MVP — the orchestrator never calls them during a plain chat turn.
-// Phase 2 will route editor.* and ui.* through the Kotlin host over the stdio bridge.
+// HostPlatform for the IntelliJ sidecar. Editor/file-search surfaces that require the live
+// IDE are stubbed for the chat MVP; file links are routed to the Kotlin host.
 export class SidecarPlatform implements HostPlatform {
   readonly env: HostPlatform["env"]
   readonly workspace: HostPlatform["workspace"]
@@ -25,16 +27,23 @@ export class SidecarPlatform implements HostPlatform {
   readonly editor: HostPlatform["editor"]
 
   private autocompleteEnabled: boolean
+  private autocompleteModel: string
   private readonly autocompleteEmitter = new EventEmitter()
+  private readonly autocompleteModelEmitter = new EventEmitter()
 
   constructor(opts: {
     directory: string
     locale: string
     autocompleteEnabled: boolean
+    autocompleteModel: string
     storageDir: string
     log: (message: string) => void
+    onAutocompleteSettingsChange: (settings: { enabled: boolean; model: string }) => void
+    requestTerminalContext?: () => Promise<{ name: string; output: string } | undefined>
+    openFile?: (filePath: string, directory: string, line?: number, column?: number) => void
   }) {
     this.autocompleteEnabled = opts.autocompleteEnabled
+    this.autocompleteModel = getAutocompleteModel(opts.autocompleteModel).id
     const storageFile = path.join(opts.storageDir, "raccoon-state.json")
 
     this.env = { locale: () => opts.locale }
@@ -45,10 +54,23 @@ export class SidecarPlatform implements HostPlatform {
         if (enabled === this.autocompleteEnabled) return
         this.autocompleteEnabled = enabled
         this.autocompleteEmitter.emit("change", enabled)
+        opts.onAutocompleteSettingsChange({ enabled, model: this.autocompleteModel })
       },
       onAutocompleteEnabledChange: (listener) => {
         this.autocompleteEmitter.on("change", listener)
         return { dispose: () => this.autocompleteEmitter.off("change", listener) }
+      },
+      getAutocompleteModel: () => this.autocompleteModel,
+      setAutocompleteModel: async (model: string) => {
+        const normalized = getAutocompleteModel(model).id
+        if (normalized === this.autocompleteModel) return
+        this.autocompleteModel = normalized
+        this.autocompleteModelEmitter.emit("change", normalized)
+        opts.onAutocompleteSettingsChange({ enabled: this.autocompleteEnabled, model: normalized })
+      },
+      onAutocompleteModelChange: (listener) => {
+        this.autocompleteModelEmitter.on("change", listener)
+        return { dispose: () => this.autocompleteModelEmitter.off("change", listener) }
       },
     }
     this.storage = new FileKeyValueStore(storageFile, opts.log)
@@ -61,10 +83,9 @@ export class SidecarPlatform implements HostPlatform {
       },
     }
     this.ui = {
-      // Webview reveal/open/external flows are host-driven; for the chat MVP they are best-effort
-      // no-ops logged to stderr. Phase 2 routes these to Kotlin over the bridge.
+      // Other host-driven UI flows remain best-effort no-ops in the chat MVP.
       revealChat: async () => {},
-      openFile: (_filePath: string, _directory: string, _line?: number, _column?: number) => {},
+      openFile: (filePath, directory, line, column) => opts.openFile?.(filePath, directory, line, column),
       openPath: async () => {},
       openExternal: async (url: string) => opts.log(`openExternal (unhandled in MVP): ${url}`),
       promptInput: async () => undefined,
@@ -76,8 +97,12 @@ export class SidecarPlatform implements HostPlatform {
       getActiveContext: (): EditorContext | undefined => undefined,
       getRangeContext: async (_ref: DocumentRangeRef): Promise<EditorContext | undefined> => undefined,
       searchFiles: async (): Promise<FileSearchResult> => ({ workspaceDir: opts.directory, items: [] }),
-      terminalContext: async () => "",
-      gitChangesContext: async () => "",
+      terminalContext: async () => {
+        const captured = await opts.requestTerminalContext?.()
+        if (!captured) return "No active terminal is available."
+        return formatTerminalOutput(captured.name, captured.output, "")
+      },
+      gitChangesContext,
     }
   }
 

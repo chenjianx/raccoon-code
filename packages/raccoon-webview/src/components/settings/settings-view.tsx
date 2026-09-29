@@ -41,7 +41,10 @@ export const SettingsView = memo(function SettingsView(props: { onClose?: () => 
   const [draftModeModels, setDraftModeModels] = useState<Partial<Record<string, ModelSelection>>>(
     config.modeModels ?? {},
   )
+  const configuredAutocompleteModel =
+    config.autocompleteModel ?? config.autocompleteModels?.[0]?.id ?? "raccoon-pro-completion"
   const [draftAutocompleteEnabled, setDraftAutocompleteEnabled] = useState(config.autocompleteEnabled ?? true)
+  const [draftAutocompleteModel, setDraftAutocompleteModel] = useState(configuredAutocompleteModel)
   const [saveState, setSaveState] = useState<{ status: "idle" | "saving" | "error" | "success"; error?: string }>({
     status: "idle",
   })
@@ -52,7 +55,15 @@ export const SettingsView = memo(function SettingsView(props: { onClose?: () => 
     setDraftModeModels(config.modeModels ?? {})
     setDraftPluginLanguageMode(config.pluginLanguageMode ?? "auto")
     setDraftAutocompleteEnabled(config.autocompleteEnabled ?? true)
-  }, [config.autocompleteEnabled, config.defaultModel, config.modeModels, config.pluginLanguageMode, saveState.status])
+    setDraftAutocompleteModel(configuredAutocompleteModel)
+  }, [
+    config.autocompleteEnabled,
+    config.defaultModel,
+    config.modeModels,
+    config.pluginLanguageMode,
+    configuredAutocompleteModel,
+    saveState.status,
+  ])
 
   useEffect(() => {
     if (saveState.status !== "success") return
@@ -67,13 +78,15 @@ export const SettingsView = memo(function SettingsView(props: { onClose?: () => 
     !sameModel(draftSelectedModel, config.defaultModel) ||
     modes.some((mode) => !sameModel(draftModeModels[mode], config.modeModels?.[mode])) ||
     draftPluginLanguageMode !== (config.pluginLanguageMode ?? "auto") ||
-    draftAutocompleteEnabled !== (config.autocompleteEnabled ?? true)
+    draftAutocompleteEnabled !== (config.autocompleteEnabled ?? true) ||
+    draftAutocompleteModel !== configuredAutocompleteModel
 
   const discard = () => {
     setDraftSelectedModel(config.defaultModel)
     setDraftModeModels(config.modeModels ?? {})
     setDraftPluginLanguageMode(config.pluginLanguageMode ?? "auto")
     setDraftAutocompleteEnabled(config.autocompleteEnabled ?? true)
+    setDraftAutocompleteModel(configuredAutocompleteModel)
     setSaveState({ status: "idle" })
   }
 
@@ -94,17 +107,20 @@ export const SettingsView = memo(function SettingsView(props: { onClose?: () => 
       ...(draftAutocompleteEnabled !== (config.autocompleteEnabled ?? true)
         ? { autocompleteEnabled: draftAutocompleteEnabled }
         : {}),
+      ...(draftAutocompleteModel !== configuredAutocompleteModel
+        ? { autocompleteModel: draftAutocompleteModel }
+        : {}),
     })
     setSaveState(result.success ? { status: "success" } : { status: "error", error: result.error })
   }
 
   return (
     <section className="settings-view">
-      <div className="settings-header">
-        <div>
-          <div className="settings-title">{language.t("settings.title")}</div>
-        </div>
-        {props.onClose ? (
+      {props.onClose ? (
+        <div className="settings-header">
+          <div>
+            <div className="settings-title">{language.t("settings.title")}</div>
+          </div>
           <button
             type="button"
             className="min-h-[28px] shrink-0 rounded-[6px] border border-transparent bg-[var(--color-button)] px-[10px] text-[var(--color-foreground)] hover:bg-[var(--color-hover)]"
@@ -113,8 +129,8 @@ export const SettingsView = memo(function SettingsView(props: { onClose?: () => 
           >
             {language.t("common.back")}
           </button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       <div className="settings-shell">
         <nav className="settings-nav" aria-label={language.t("settings.nav.label")}>
@@ -220,56 +236,61 @@ export const SettingsView = memo(function SettingsView(props: { onClose?: () => 
         </nav>
 
         <div className="settings-content">
-          {tab === "models" ? (
-            <SettingsModels
-              agents={modeAgents}
-              connectedModels={connectedModels}
-              selectedModel={draftSelectedModel}
-              modeModels={draftModeModels}
-              onSelectedModelChange={setDraftSelectedModel}
-              onModeModelChange={(mode, model) => setDraftModeModels((current) => ({ ...current, [mode]: model }))}
-              onModeModelClear={(mode) => setDraftModeModels((current) => ({ ...current, [mode]: undefined }))}
-            />
-          ) : tab === "agents" ? (
-            <SettingsAgents
-              agents={config.agents}
-              connectedModels={connectedModels}
-              onConfigureAgent={actions.configureAgent}
-              onDeleteAgent={actions.deleteAgent}
-            />
-          ) : tab === "commands" ? (
-            <SettingsCommands
-              commandConfigs={config.commandConfigs ?? []}
-              availableCommands={config.commands ?? []}
-              agents={config.agents}
-              connectedModels={connectedModels}
-              onSaveCommand={actions.saveCommand}
-              onDeleteCommand={actions.deleteCommand}
-            />
-          ) : tab === "language" ? (
-            <SettingsLanguage
-              pluginLanguageMode={draftPluginLanguageMode}
-              onPluginLanguageChange={setDraftPluginLanguageMode}
-            />
-          ) : tab === "autocomplete" ? (
-            <SettingsAutocomplete
-              enabled={draftAutocompleteEnabled}
-              onEnabledChange={setDraftAutocompleteEnabled}
-            />
-          ) : tab === "rules" ? (
-            <SettingsRules
-              rules={config.rules ?? []}
-              onSaveRule={actions.saveRule}
-              onToggleRule={actions.toggleRule}
-              onDeleteRule={actions.deleteRule}
-            />
-          ) : tab === "mcp" ? (
-            <SettingsMcp />
-          ) : tab === "skills" ? (
-            <SettingsSkills />
-          ) : (
-            <SettingsProviders />
-          )}
+          <div className={`settings-content-inner h-full${tab === "rules" ? " settings-content-inner-rules" : ""}`}>
+            {tab === "models" ? (
+              <SettingsModels
+                agents={modeAgents}
+                connectedModels={connectedModels}
+                selectedModel={draftSelectedModel}
+                modeModels={draftModeModels}
+                onSelectedModelChange={setDraftSelectedModel}
+                onModeModelChange={(mode, model) => setDraftModeModels((current) => ({ ...current, [mode]: model }))}
+                onModeModelClear={(mode) => setDraftModeModels((current) => ({ ...current, [mode]: undefined }))}
+              />
+            ) : tab === "agents" ? (
+              <SettingsAgents
+                agents={config.agents}
+                connectedModels={connectedModels}
+                onConfigureAgent={actions.configureAgent}
+                onDeleteAgent={actions.deleteAgent}
+              />
+            ) : tab === "commands" ? (
+              <SettingsCommands
+                commandConfigs={config.commandConfigs ?? []}
+                availableCommands={config.commands ?? []}
+                agents={config.agents}
+                connectedModels={connectedModels}
+                onSaveCommand={actions.saveCommand}
+                onDeleteCommand={actions.deleteCommand}
+              />
+            ) : tab === "language" ? (
+              <SettingsLanguage
+                pluginLanguageMode={draftPluginLanguageMode}
+                onPluginLanguageChange={setDraftPluginLanguageMode}
+              />
+            ) : tab === "autocomplete" ? (
+              <SettingsAutocomplete
+                enabled={draftAutocompleteEnabled}
+                model={draftAutocompleteModel}
+                models={config.autocompleteModels ?? []}
+                onEnabledChange={setDraftAutocompleteEnabled}
+                onModelChange={setDraftAutocompleteModel}
+              />
+            ) : tab === "rules" ? (
+              <SettingsRules
+                rules={config.rules ?? []}
+                onSaveRule={actions.saveRule}
+                onToggleRule={actions.toggleRule}
+                onDeleteRule={actions.deleteRule}
+              />
+            ) : tab === "mcp" ? (
+              <SettingsMcp />
+            ) : tab === "skills" ? (
+              <SettingsSkills />
+            ) : (
+              <SettingsProviders />
+            )}
+          </div>
         </div>
       </div>
 

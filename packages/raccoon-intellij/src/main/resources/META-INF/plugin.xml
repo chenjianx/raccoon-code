@@ -9,6 +9,9 @@
   ]]></description>
 
   <depends>com.intellij.modules.platform</depends>
+  <depends>com.intellij.java</depends>
+  <depends>org.jetbrains.kotlin</depends>
+  <depends>org.jetbrains.plugins.terminal</depends>
 
   <extensions defaultExtensionNs="com.intellij">
     <toolWindow
@@ -16,5 +19,50 @@
       anchor="right"
       icon="/icons/raccoonToolWindow.svg"
       factoryClass="com.sensetime.sensecode.jetbrains.raccoon.RaccoonToolWindowFactory"/>
+    <editorFactoryListener
+      implementation="com.sensetime.sensecode.jetbrains.raccoon.autocomplete.AutocompleteEditorListener"/>
+    <actionPromoter
+      order="last"
+      implementation="com.sensetime.sensecode.jetbrains.raccoon.autocomplete.RaccoonActionPromoter"/>
   </extensions>
+
+  <actions>
+    <group
+      id="Raccoon.EditorContextMenu"
+      class="com.sensetime.sensecode.jetbrains.raccoon.EditorSelectionActionGroup"
+      text="Raccoon"
+      popup="true">
+      <add-to-group group-id="EditorPopupMenu" anchor="first"/>
+      <action
+        id="Raccoon.ExplainSelection"
+        class="com.sensetime.sensecode.jetbrains.raccoon.ExplainSelectionAction"
+        text="Explain"/>
+      <action
+        id="Raccoon.FixSelection"
+        class="com.sensetime.sensecode.jetbrains.raccoon.FixSelectionAction"
+        text="Fix"/>
+      <action
+        id="Raccoon.ImproveSelection"
+        class="com.sensetime.sensecode.jetbrains.raccoon.ImproveSelectionAction"
+        text="Improve"/>
+      <action
+        id="Raccoon.AddSelectionToContext"
+        class="com.sensetime.sensecode.jetbrains.raccoon.AddSelectionToContextAction"
+        text="Add to Context"/>
+    </group>
+    <action
+      id="Raccoon.AcceptAutocomplete"
+      class="com.sensetime.sensecode.jetbrains.raccoon.autocomplete.AcceptAutocompleteAction"
+      text="Accept Raccoon Autocomplete">
+      <keyboard-shortcut keymap="$default" first-keystroke="TAB"/>
+      <keyboard-shortcut keymap="Mac OS X" first-keystroke="TAB"/>
+    </action>
+    <action
+      id="Raccoon.CancelAutocomplete"
+      class="com.sensetime.sensecode.jetbrains.raccoon.autocomplete.CancelAutocompleteAction"
+      text="Cancel Raccoon Autocomplete">
+      <keyboard-shortcut keymap="$default" first-keystroke="ESCAPE"/>
+      <keyboard-shortcut keymap="Mac OS X" first-keystroke="ESCAPE"/>
+    </action>
+  </actions>
 </idea-plugin>

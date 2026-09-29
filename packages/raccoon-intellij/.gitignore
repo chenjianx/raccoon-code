@@ -1,8 +1,13 @@
 .gradle/
+.kotlin/
 build/
 !gradle/wrapper/gradle-wrapper.jar
 # Generated resources (produced by `bun run build`)
 src/main/resources/webview/
 src/main/resources/sidecar/sidecar.cjs
 src/main/resources/sidecar/sidecar.cjs.map
+src/main/resources/sidecar/grammars/
+src/main/resources/sidecar/tree-sitter.wasm
+src/main/resources/sidecar/grammars.txt
+src/main/resources/sidecar/extensions.txt
 .DS_Store

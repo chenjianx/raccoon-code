@@ -42,9 +42,12 @@ export type ServerConfig = {
 // implementation (spawning the opencode CLI server) is platform-specific and stays in the host.
 export interface ConnectionPort {
   onStateChange(listener: (state: ConnectionState) => void): () => void
+  getConnectionState(): ConnectionState
   getServerConfig(): ServerConfig | null
   getClientAsync(directory: string): Promise<OpencodeClient>
 }
+
+export type AutocompleteConnection = Pick<ConnectionPort, "getConnectionState" | "getClientAsync">
 
 // The two webview surfaces (sidebar chat + standalone settings panel). Implemented by the
 // platform's webview container; the orchestrator only posts protocol messages through it.
@@ -103,6 +106,9 @@ export interface HostPlatform {
     getAutocompleteEnabled(): boolean
     setAutocompleteEnabled(enabled: boolean): Promise<void>
     onAutocompleteEnabledChange(listener: (enabled: boolean) => void): Disposable
+    getAutocompleteModel(): string
+    setAutocompleteModel(model: string): Promise<void>
+    onAutocompleteModelChange(listener: (model: string) => void): Disposable
   }
   storage?: KeyValueStore
   fs: {

@@ -1,5 +1,14 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
-import { ArrowClockwiseIcon, ImageIcon, PaperPlaneRightIcon, PaperclipIcon, ShieldCheckIcon, ShieldSlashIcon, XIcon } from "@phosphor-icons/react"
+import {
+  ArrowClockwiseIcon,
+  ImageIcon,
+  PaperPlaneRightIcon,
+  PaperclipIcon,
+  ShieldCheckIcon,
+  ShieldSlashIcon,
+  SquareIcon,
+  XIcon,
+} from "@phosphor-icons/react"
 import { useSession } from "../../../context/session"
 import { useLanguage } from "../../../context/language"
 import type { RaccoonFileAttachment, RaccoonSlashCommand } from "../../../protocol"
@@ -14,7 +23,7 @@ import {
   textAttachment,
   useFileMention,
 } from "./file-mention"
-import { modeLabel, requestContext, slashQuery } from "./prompt-input-utils"
+import { modeLabel, promptSendState, requestContext, slashQuery } from "./prompt-input-utils"
 import { usePromptAttachments } from "./use-prompt-attachments"
 import { PromptCommandList, PromptMentionList, PromptModePicker } from "./prompt-popovers"
 import { ReasoningPicker } from "../../ui/reasoning-picker"
@@ -83,8 +92,8 @@ export function PromptInput() {
     usePromptAttachments((attachment) =>
       session.openImage({ url: attachment.url, filename: attachment.filename, mime: attachment.mime }),
     )
-  const minTextareaHeight = 76
-  const maxTextareaHeight = 220
+  const minTextareaHeight = 54
+  const maxTextareaHeight = 180
   const modeOptions = session.state.agents
     .filter((agent) => agent.mode !== "subagent" && !agent.hidden)
     .map((agent) => ({
@@ -104,6 +113,7 @@ export function PromptInput() {
   const selectedModel = session.conversationModel
   const canSend = session.canSend(draft, attachments)
   const busy = session.state.busy ?? false
+  const sendState = promptSendState({ busy, canSend, submitting: submittingCurrentSession })
   const commandQuery = slashQuery(draft, textareaRef.current?.selectionStart ?? draft.length)
   const atQuery = mentionQuery(draft, textareaRef.current?.selectionStart ?? draft.length)
   const mention = useFileMention(commandQuery === undefined ? atQuery : undefined)
@@ -290,9 +300,9 @@ export function PromptInput() {
   }
 
   return (
-    <div className="mt-2.5 mb-2 flex w-full flex-col border-t border-[var(--color-border)] px-0 pt-2">
+    <div className="prompt-input-shell">
       <div
-        className="prompt-composer relative flex flex-col gap-1.5 rounded-[6px] border border-[color-mix(in_srgb,var(--color-border)_82%,var(--color-foreground))] bg-[var(--color-background)] p-0"
+        className="prompt-composer relative flex flex-col gap-1.5 rounded-[6px] border border-[var(--color-border)] bg-[var(--color-background)] p-0 transition-colors duration-150 focus-within:border-[color-mix(in_srgb,var(--chat-accent)_58%,var(--color-border))]"
         {...dragHandlers}
       >
         <PromptDragOverlay active={dragging} />
@@ -319,7 +329,8 @@ export function PromptInput() {
         <PromptAttachments attachments={attachments} onOpen={openAttachment} onRemove={removeAttachment} />
         <textarea
           ref={textareaRef}
-          className="min-h-[76px] w-full resize-none rounded-[4px] border border-transparent bg-transparent px-[7px] py-1.5 text-[13px] leading-[19px] text-[var(--color-foreground)] outline-none placeholder:text-[var(--color-muted)]"
+          rows={2}
+          className="min-h-[54px] w-full resize-none rounded-[4px] border border-transparent bg-transparent px-2.5 py-2 text-[13px] leading-[19px] text-[var(--color-foreground)] outline-none placeholder:text-[var(--color-muted)]"
           style={{ height: `${minTextareaHeight}px` }}
           value={draft}
           placeholder={t("prompt.placeholder")}
@@ -390,7 +401,10 @@ export function PromptInput() {
             send()
           }}
         />
-        <div className={`relative px-1.5 pb-1.5 ${session.state.activeSessionID ? "pr-[76px]" : "pr-[40px]"}`}>
+        <div
+          className="flex min-h-[38px] items-center justify-between gap-2 px-1.5 pb-2"
+          data-prompt-footer-layout="flow"
+        >
           <div className="flex min-w-0 flex-wrap items-center gap-1">
             <PromptModePicker
               options={modeOptions}
@@ -414,6 +428,7 @@ export function PromptInput() {
               ariaLabel={t("prompt.model")}
               placeholder="No model"
               compact
+              variant="composer"
             />
             {activeSessionID && session.conversationModel?.variants ? (
               <ReasoningPicker
@@ -423,40 +438,51 @@ export function PromptInput() {
               />
             ) : null}
           </div>
-          {session.state.activeSessionID ? (
+          <div className="flex shrink-0 items-center gap-1.5" data-prompt-actions="compact">
+            {session.state.activeSessionID ? (
+              <button
+                type="button"
+                className="ui-tip prompt-action-button prompt-auto-approve-button flex h-[30px] w-[30px] items-center justify-center border border-transparent p-0 transition-colors"
+                aria-pressed={session.autoApprovePermissions}
+                onClick={() => session.toggleAutoApprovePermissions()}
+                aria-label={t("prompt.autoApprove")}
+                data-tip={session.autoApprovePermissions ? t("prompt.autoApproveOn") : t("prompt.autoApproveOff")}
+                data-prompt-auto-approve-state={session.autoApprovePermissions ? "on" : "off"}
+              >
+                {session.autoApprovePermissions ? (
+                  <ShieldCheckIcon data-prompt-permission-icon="enabled" size={18} weight="regular" />
+                ) : (
+                  <ShieldSlashIcon data-prompt-permission-icon="disabled" size={18} weight="regular" />
+                )}
+              </button>
+            ) : null}
             <button
               type="button"
-              className={`ui-tip prompt-action-button prompt-auto-approve-button absolute right-[40px] top-0 flex h-[30px] w-[30px] items-center justify-center rounded-[999px] border p-0 transition-colors ${
-                session.autoApprovePermissions
-                  ? "border-[var(--color-border)] bg-[var(--color-hover-strong)] text-[var(--color-foreground)]"
-                  : "border-[var(--color-border)] bg-transparent text-[var(--color-muted)] hover:bg-[var(--color-hover-strong)]"
-              }`}
-              aria-pressed={session.autoApprovePermissions}
-              onClick={() => session.toggleAutoApprovePermissions()}
-              aria-label={t("prompt.autoApprove")}
-              data-tip={session.autoApprovePermissions ? t("prompt.autoApproveOn") : t("prompt.autoApproveOff")}
+              className="ui-tip prompt-action-button prompt-send-button flex h-[30px] w-[30px] items-center justify-center border border-transparent p-0 transition-colors"
+              disabled={!busy && (!canSend || submittingCurrentSession)}
+              onClick={send}
+              aria-label={busy ? t("prompt.stop") : canSend ? t("prompt.send") : t("prompt.cannotSend")}
+              data-tip={busy ? t("prompt.stop") : t("prompt.send")}
+              data-prompt-send-state={sendState}
             >
-              {session.autoApprovePermissions ? (
-                <ShieldCheckIcon size={18} weight="fill" />
+              {busy ? (
+                <SquareIcon data-prompt-action-icon="stop" size={12} weight="fill" />
+              ) : submittingCurrentSession ? (
+                <ArrowClockwiseIcon
+                  data-prompt-action-icon="loading"
+                  className="animate-spin"
+                  size={18}
+                  weight="bold"
+                />
               ) : (
-                <ShieldSlashIcon size={18} weight="regular" />
+                <PaperPlaneRightIcon
+                  data-prompt-action-icon="send"
+                  size={18}
+                  weight={canSend ? "fill" : "regular"}
+                />
               )}
             </button>
-          ) : null}
-          <button
-            type="button"
-            className="ui-tip prompt-action-button prompt-send-button absolute right-1.5 top-0 flex h-[30px] w-[30px] items-center justify-center rounded-[999px] border border-[var(--color-border)] bg-transparent p-0 text-[var(--color-muted)] hover:bg-[var(--color-hover-strong)] disabled:cursor-default"
-            disabled={!busy && (!canSend || submittingCurrentSession)}
-            onClick={send}
-            aria-label={busy ? t("prompt.stop") : canSend ? t("prompt.send") : t("prompt.cannotSend")}
-            data-tip={busy ? t("prompt.stop") : t("prompt.send")}
-          >
-            {busy || submittingCurrentSession ? (
-              <ArrowClockwiseIcon className="animate-spin" size={20} weight="bold" />
-            ) : (
-              <PaperPlaneRightIcon className={canSend ? undefined : "opacity-55"} size={20} weight={canSend ? "fill" : "regular"} />
-            )}
-          </button>
+          </div>
         </div>
       </div>
     </div>
