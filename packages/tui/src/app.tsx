@@ -821,7 +821,7 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         name: "docs.open",
         title: "Open docs",
         run: () => {
-          open("https://xiaohuanxiong.com/docs").catch(() => {}) // raccoon_change - open Raccoon docs
+          openUrl("https://xiaohuanxiong.com/docs").catch(() => {}) // raccoon_change - open Raccoon docs
           dialog.clear()
         },
         category: "System",
