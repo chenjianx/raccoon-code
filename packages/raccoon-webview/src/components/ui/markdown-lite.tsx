@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useState } from "react"
-import { CopyIcon, CheckIcon } from "@phosphor-icons/react"
+import { ClipboardTextIcon, CheckIcon } from "@phosphor-icons/react"
 import ReactMarkdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { bundledLanguages, codeToTokens, type BundledLanguage, type ThemedToken } from "shiki"
@@ -205,7 +205,7 @@ function CodeBlock(props: { language?: string; code: string; streaming?: boolean
             setCopied(true)
           }}
         >
-          {copied ? <CheckIcon weight="bold" /> : <CopyIcon weight="bold" />}
+          {copied ? <CheckIcon weight="bold" /> : <ClipboardTextIcon />}
         </button>
       </div>
       <div data-slot="markdown-code-body">

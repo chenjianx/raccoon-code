@@ -1,14 +1,11 @@
 import * as vscode from "vscode"
-import type { RaccoonConnectionService } from "../cli-backend/index.js"
-import { CompletionProvider } from "./CompletionProvider.js"
-import { ErrorBackoff } from "./ErrorBackoff.js"
-import { hasValidCredentials, RaccoonFimLlm } from "./llm/RaccoonFimLlm.js"
-import { DEFAULT_AUTOCOMPLETE_MODEL } from "@opencode-ai/raccoon-core"
 import {
-  DEFAULT_AUTOCOMPLETE_OPTIONS,
+  DEFAULT_AUTOCOMPLETE_MODEL,
+  RaccoonAutocompleteService,
   type AutocompleteInput,
   type AutocompleteOutcome,
-} from "./util/types.js"
+} from "@opencode-ai/raccoon-core"
+import type { RaccoonConnectionService } from "../cli-backend/index.js"
 
 export interface AutocompleteSettings {
   enableAutoTrigger?: boolean
@@ -20,76 +17,50 @@ const INLINE_COMPLETION_ACCEPTED_COMMAND = "raccoon.autocomplete.inline-completi
 let completionIdCounter = 0
 
 /**
- * VSCode adapter (InlineCompletionItemProvider) over the core CompletionProvider.
+ * VSCode adapter (InlineCompletionItemProvider) over the shared autocomplete facade.
  * Ported from continue-rac (extensions/vscode/src/autocomplete/completionProvider.ts),
- * keeping raccoon's connection gating, ErrorBackoff circuit breaker, and the
- * accepted-completion context key.
+ * keeping the accepted-completion context key and VSCode-specific presentation.
  */
 export class AutocompleteInlineCompletionProvider implements vscode.InlineCompletionItemProvider {
-  private completionProvider: CompletionProvider
-  private modelId: string
+  private readonly autocompleteService: RaccoonAutocompleteService
   private acceptedCommand: vscode.Disposable | null = null
   private lastOutcome: AutocompleteOutcome | undefined
 
-  public readonly backoff = new ErrorBackoff()
-  private fatalNotified = false
-
   constructor(
     modelId: string,
-    private readonly connectionService: RaccoonConnectionService,
+    connectionService: RaccoonConnectionService,
     private readonly getSettings: () => AutocompleteSettings | null,
-    private readonly workspacePath: string,
-    private readonly onFatalError?: (status: number | null) => void,
+    workspacePath: string,
+    onFatalError?: (status: number | null) => void,
     private readonly log: (msg: string) => void = () => {},
-    private readonly onActivity?: (active: boolean) => void,
+    onActivity?: (active: boolean) => void,
   ) {
-    this.modelId = modelId || DEFAULT_AUTOCOMPLETE_MODEL.id
-
-    this.completionProvider = new CompletionProvider(
-      () => this.buildLlm(),
-      (e) => this.log(`[error] ${e instanceof Error ? e.message : String(e)}`),
-      DEFAULT_AUTOCOMPLETE_OPTIONS,
-      this.log,
+    this.autocompleteService = new RaccoonAutocompleteService(
+      connectionService,
+      workspacePath,
+      modelId || DEFAULT_AUTOCOMPLETE_MODEL.id,
+      { onFatalError, log: this.log, onActivity },
     )
 
     this.acceptedCommand = vscode.commands.registerCommand(INLINE_COMPLETION_ACCEPTED_COMMAND, () => {
       if (this.lastOutcome) {
-        this.completionProvider.accept(this.lastOutcome.completion, this.lastOutcome.filepath)
+        this.autocompleteService.accept(this.lastOutcome.completion, this.lastOutcome.filepath)
       }
       vscode.commands.executeCommand("setContext", "raccoon.autocomplete.hasSuggestions", false)
     })
   }
 
   public setModel(modelId: string): void {
-    this.modelId = modelId
+    this.autocompleteService.setModel(modelId)
   }
 
   public resetBackoff(): void {
-    this.backoff.reset()
-    this.fatalNotified = false
+    this.autocompleteService.resetBackoff()
   }
 
   public dispose(): void {
     this.acceptedCommand?.dispose()
     this.acceptedCommand = null
-  }
-
-  private buildLlm(): RaccoonFimLlm {
-    return new RaccoonFimLlm(this.connectionService, this.workspacePath, this.modelId, {
-      onSuccess: () => {
-        this.backoff.success()
-        this.fatalNotified = false
-      },
-      onFailure: (error) => {
-        const kind = this.backoff.failure(error)
-        this.log(`[fetch] failure (${kind})`)
-        if (kind === "fatal" && !this.fatalNotified) {
-          this.fatalNotified = true
-          this.onFatalError?.(this.backoff.getFatalStatus())
-        }
-      },
-      log: this.log,
-    })
   }
 
   private setHasSuggestions(value: boolean): void {
@@ -118,14 +89,6 @@ export class AutocompleteInlineCompletionProvider implements vscode.InlineComple
     if (token.isCancellationRequested) {
       return undefined
     }
-    if (!hasValidCredentials(this.connectionService)) {
-      this.log(`[skip] not connected (state=${this.connectionService.getConnectionState()})`)
-      return undefined
-    }
-    if (this.backoff.blocked()) {
-      this.log(`[skip] backoff blocked (fatalStatus=${this.backoff.getFatalStatus()})`)
-      return undefined
-    }
     if (document.uri.scheme === "vscode-scm") {
       return undefined
     }
@@ -135,14 +98,29 @@ export class AutocompleteInlineCompletionProvider implements vscode.InlineComple
       return undefined
     }
 
-    const selectedCompletionInfo = context.selectedCompletionInfo
-    if (selectedCompletionInfo) {
-      const { text, range } = selectedCompletionInfo
+    if (context.selectedCompletionInfo) {
+      const { text, range } = context.selectedCompletionInfo
       const typedText = document.getText(range)
       const typedLength = range.end.character - range.start.character
       if (typedLength < 4) return undefined
       if (!text.startsWith(typedText)) return undefined
     }
+
+    const selectedCompletionInfo = context.selectedCompletionInfo
+      ? {
+          text: context.selectedCompletionInfo.text,
+          range: {
+            start: {
+              line: context.selectedCompletionInfo.range.start.line,
+              character: context.selectedCompletionInfo.range.start.character,
+            },
+            end: {
+              line: context.selectedCompletionInfo.range.end.line,
+              character: context.selectedCompletionInfo.range.end.character,
+            },
+          },
+        }
+      : undefined
 
     const abortController = new AbortController()
     const signal = abortController.signal
@@ -158,13 +136,7 @@ export class AutocompleteInlineCompletionProvider implements vscode.InlineComple
       isUntitledFile: document.isUntitled,
     }
 
-    this.onActivity?.(true)
-    let outcome: AutocompleteOutcome | undefined
-    try {
-      outcome = await this.completionProvider.provideInlineCompletionItems(input, signal)
-    } finally {
-      this.onActivity?.(false)
-    }
+    const outcome = await this.autocompleteService.complete(input, signal)
 
     if (signal.aborted || !outcome || !outcome.completion) {
       this.setHasSuggestions(false)
@@ -172,7 +144,7 @@ export class AutocompleteInlineCompletionProvider implements vscode.InlineComple
     }
     this.lastOutcome = outcome
 
-    const startPos = selectedCompletionInfo?.range.start ?? position
+    const startPos = context.selectedCompletionInfo?.range.start ?? position
     // Replace from the completion start to the end of the current line (matching
     // continue-rac). The FIM model already accounts for the suffix, so replacing
     // the rest of the line absorbs editor-inserted leftovers — e.g. the `)` that

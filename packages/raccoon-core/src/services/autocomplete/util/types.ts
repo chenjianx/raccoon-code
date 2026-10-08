@@ -1,5 +1,3 @@
-import * as vscode from "vscode"
-
 /**
  * Tunable autocomplete options, mirroring the subset of continue-rac's
  * TabAutocompleteOptions that the prefix/suffix-only pipeline uses.
@@ -30,24 +28,33 @@ export const DEFAULT_AUTOCOMPLETE_OPTIONS: AutocompleteOptions = {
   showWhateverWeHaveAtXMs: 0,
 }
 
-/** Cursor position as a plain object (decoupled from vscode.Position). */
-interface Position {
+export interface AutocompletePosition {
   line: number
   character: number
 }
 
+export interface AutocompleteRange {
+  start: AutocompletePosition
+  end: AutocompletePosition
+}
+
+export interface SelectedCompletionInfo {
+  text: string
+  range: AutocompleteRange
+}
+
 /**
  * Everything the core pipeline needs about a single completion request,
- * decoupled from vscode types. Built by the vscode provider layer.
+ * decoupled from host editor types. Built by the host provider layer.
  */
 export interface AutocompleteInput {
   completionId: string
   filepath: string
   languageId: string
-  pos: Position
+  pos: AutocompletePosition
   /** Full document text (already resolved by the provider). */
   fileContents: string
-  selectedCompletionInfo?: { text: string; range: vscode.Range }
+  selectedCompletionInfo?: SelectedCompletionInfo
   isUntitledFile: boolean
 }
 

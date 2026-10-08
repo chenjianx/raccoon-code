@@ -33,8 +33,9 @@ function userMessage(sessionID: string, id: string, text: string, created = 1) {
 // Build a controller whose session.messages resolves through a queue of deferreds
 // so tests can force stale/fresh response ordering. get/status/question resolve
 // synchronously; only messages is deferred (Promise.all blocks on it).
-function makeController() {
+function makeController(pendingPermissions: unknown[] = []) {
   const messagesQueue: { sessionID: string; before?: string; deferred: Deferred<{ data: unknown[]; response?: Response }> }[] = []
+  const posts: ExtensionToWebview[] = []
   const client = {
     session: {
       get: async ({ sessionID }: { sessionID: string }) => ({ data: sessionInfo(sessionID) }),
@@ -49,6 +50,7 @@ function makeController() {
       list: async () => ({ data: [] as unknown[] }),
     },
     permission: {
+      list: async () => ({ data: pendingPermissions }),
       reply: async () => ({ data: true }),
     },
   } as unknown as OpencodeClient
@@ -64,7 +66,7 @@ function makeController() {
     post: () => {},
     log: () => {},
     streams: { drop: () => {} },
-    webviewHost: { post: () => {} },
+    webviewHost: { post: (_source: string, message: ExtensionToWebview) => posts.push(message) },
     loadModels: async () => {},
   } as never)
 
@@ -75,7 +77,7 @@ function makeController() {
       response: new Response(null, { headers: cursor ? { "x-next-cursor": cursor } : undefined }),
     })
   }
-  return { controller, resolveMessages, getState: () => state, messagesQueue }
+  return { controller, resolveMessages, getState: () => state, messagesQueue, posts }
 }
 
 function makeSubAgentController(
@@ -208,6 +210,47 @@ describe("RaccoonSessionController loadMessages generation", () => {
 
     resolveMessages(1, [userMessage("root", "msg-root-2", "still root")])
     await reply
+  })
+
+  test("recovers a pending permission when refreshing the active session", async () => {
+    const { controller, resolveMessages, posts } = makeController([
+      {
+        id: "perm-a",
+        sessionID: "A",
+        permission: "external_directory",
+        patterns: ["C:\\ProgramData\\MySQL\\*"],
+        metadata: {},
+        always: ["C:\\ProgramData\\MySQL\\*"],
+      },
+      {
+        id: "perm-b",
+        sessionID: "B",
+        permission: "bash",
+        patterns: ["echo B"],
+        metadata: {},
+        always: ["echo B"],
+      },
+    ])
+
+    const load = controller.loadMessages("A")
+    await tick()
+    resolveMessages(0, [userMessage("A", "msg-a", "hello A")])
+    await load
+
+    expect(posts).toEqual([
+      {
+        type: "permissionRequest",
+        permission: {
+          id: "perm-a",
+          sessionID: "A",
+          permission: "external_directory",
+          patterns: ["C:\\ProgramData\\MySQL\\*"],
+          metadata: {},
+          always: ["C:\\ProgramData\\MySQL\\*"],
+          tool: undefined,
+        },
+      },
+    ])
   })
 
   test("loads older messages with the cursor and preserves them across refreshes", async () => {
@@ -349,6 +392,37 @@ describe("RaccoonSessionController subagent navigation", () => {
       sessionID: "A",
       messageID: "msg-a",
       part: { id: "msg-a-p", type: "text", text: "already live" },
+    })
+  })
+
+  test("keeps unpersisted stream updates when reopening a subagent with an absent status", async () => {
+    const { controller, posts, resolveMessages } = makeSubAgentController()
+
+    controller.postSubAgentEvent("A", {
+      type: "partUpdated",
+      sessionID: "A",
+      messageID: "msg-a",
+      part: { id: "msg-a-p", type: "text", text: "live" },
+      delta: { type: "text-delta", textDelta: "live" },
+    })
+    const first = controller.openSubAgent("A", "A")
+    await tick()
+    resolveMessages(0, "A", "msg-a", "")
+    await first
+    controller.closeSubAgent()
+
+    const reopenedAt = posts.length
+    const reopened = controller.openSubAgent("A", "A")
+    await tick()
+    resolveMessages(1, "A", "msg-a", "")
+    await reopened
+
+    expect(posts.slice(reopenedAt).at(-1)).toEqual({
+      type: "partUpdated",
+      sessionID: "A",
+      messageID: "msg-a",
+      part: { id: "msg-a-p", type: "text", text: "live" },
+      delta: { type: "text-delta", textDelta: "live" },
     })
   })
 

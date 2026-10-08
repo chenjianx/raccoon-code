@@ -7,12 +7,18 @@
 // traces) must go to stderr so the host's line reader never sees a malformed frame.
 
 import type { ExtensionToWebview, WebviewToExtension } from "@opencode-ai/raccoon-webview"
-import type { RaccoonWebviewSource } from "@opencode-ai/raccoon-core"
+import type { AutocompleteInput, EditorContext, EditorContextAction, RaccoonWebviewSource } from "@opencode-ai/raccoon-core"
 
 // Messages arriving from the host (decoded from stdin).
 export type HostToSidecar =
-  | { type: "init"; directory: string; locale: string; autocompleteEnabled: boolean }
+  | { type: "init"; directory: string; locale: string; autocompleteEnabled: boolean; autocompleteModel?: string }
   | { type: "webviewMessage"; source: RaccoonWebviewSource; message: WebviewToExtension }
+  | { type: "autocompleteComplete"; requestID: string; input: AutocompleteInput }
+  | { type: "autocompleteCancel"; requestID: string }
+  | { type: "autocompleteAccept"; completion: string; filepath: string }
+  | { type: "terminalContextResult"; requestID: string; name?: string; output?: string }
+  | { type: "functionAction"; action: EditorContextAction; context: EditorContext }
+  | { type: "functionRanges"; requestID: string; fileName: string; text: string }
   | { type: "dispose" }
 
 // Messages sent to the host (encoded to stdout). Anything the WebviewTransport would
@@ -21,7 +27,12 @@ export type SidecarToHost =
   | { type: "post"; source: RaccoonWebviewSource; message: ExtensionToWebview }
   | { type: "serverPort"; port: number | null }
   | { type: "log"; message: string }
-  | { type: "ready" }
+  | { type: "autocompleteResult"; requestID: string; completion?: string }
+  | { type: "autocompleteSettings"; enabled: boolean; model: string }
+  | { type: "captureTerminal"; requestID: string }
+  | { type: "openFile"; filePath: string; directory: string; line?: number; column?: number }
+  | { type: "functionRangesResult"; requestID: string; ranges: { type: string; start: number; end: number }[] }
+  | { type: "ready"; pluginLanguage: string }
 
 export function createStdoutWriter(stream: NodeJS.WritableStream) {
   return (message: SidecarToHost) => {

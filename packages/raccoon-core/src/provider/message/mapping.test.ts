@@ -1,6 +1,57 @@
 import { describe, expect, test } from "bun:test"
 import type { Session } from "@opencode-ai/sdk/v2/client"
-import { mapProviderModels, mapSession, mapSubSession } from "./mapping"
+import { mapMessage, mapProviderModels, mapSession, mapSubSession } from "./mapping"
+
+describe("mapMessage", () => {
+  test("preserves assistant model, agent, and completion metadata for the response footer", () => {
+    const [message] = mapMessage({
+      info: {
+        id: "msg_assistant",
+        role: "assistant",
+        time: { created: 1_200, completed: 4_400 },
+        agent: "build",
+        providerID: "raccoon",
+        modelID: "raccoon-pro",
+        tokens: { input: 10, output: 5, reasoning: 0, cache: { read: 0, write: 0 } },
+        cost: 0,
+      },
+      parts: [{ id: "prt_text", type: "text", text: "Done" }],
+    } as never)
+
+    expect(message).toMatchObject({
+      agent: "build",
+      providerID: "raccoon",
+      modelID: "raccoon-pro",
+      completedAt: 4_400,
+    })
+  })
+
+  test("preserves a tool call ID so permission requests can identify their source", () => {
+    const [message] = mapMessage({
+      info: {
+        id: "msg_assistant",
+        role: "assistant",
+        time: { created: 1_200 },
+        agent: "build",
+        providerID: "raccoon",
+        modelID: "raccoon-pro",
+        tokens: { input: 10, output: 5, reasoning: 0, cache: { read: 0, write: 0 } },
+        cost: 0,
+      },
+      parts: [
+        {
+          id: "prt_shell",
+          type: "tool",
+          tool: "bash",
+          callID: "call_shell",
+          state: { status: "running", input: { command: "ls /external/project" }, time: { start: 1_300 } },
+        },
+      ],
+    } as never)
+
+    expect(message?.parts[0]).toMatchObject({ id: "prt_shell", callID: "call_shell" })
+  })
+})
 
 describe("mapProviderModels", () => {
   test("filters autocomplete-only raccoon models from selectable models", () => {

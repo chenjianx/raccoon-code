@@ -336,7 +336,7 @@ export class RaccoonSessionController {
       error: undefined,
     })
     this.deps.post()
-    await this.recoverPendingQuestions(sessionID)
+    await Promise.all([this.recoverPendingQuestions(sessionID), this.recoverPendingPermissions(sessionID)])
   }
 
   async loadOlderMessages(sessionID: string) {
@@ -531,6 +531,30 @@ export class RaccoonSessionController {
       }
     } catch (error) {
       this.deps.log(`pending question recovery failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  async recoverPendingPermissions(sessionID = this.deps.getState().activeSessionID) {
+    if (!sessionID) return
+    try {
+      const response = await (await this.deps.client()).permission.list({ directory: this.deps.directory() })
+      for (const permission of response.data ?? []) {
+        if (permission.sessionID !== sessionID) continue
+        this.deps.webviewHost.post("chat", {
+          type: "permissionRequest",
+          permission: {
+            id: permission.id,
+            sessionID: permission.sessionID,
+            permission: permission.permission,
+            patterns: permission.patterns,
+            metadata: permission.metadata,
+            always: permission.always,
+            tool: permission.tool,
+          },
+        } satisfies ExtensionToWebview)
+      }
+    } catch (error) {
+      this.deps.log(`pending permission recovery failed: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
@@ -935,7 +959,8 @@ export class RaccoonSessionController {
     this.deps.webviewHost.post("chat", { type: "showSubAgent", view } satisfies ExtensionToWebview)
     load.events.forEach((message) => this.deps.webviewHost.post("chat", message))
     const latestBusy = load.events.filter((message) => message.type === "subAgentBusyChanged").at(-1)
-    if ((latestBusy?.busy ?? view.busy) === false) this.subAgentEvents.delete(load.sessionID)
+    // The status snapshot can temporarily omit a running child; only an explicit idle event makes buffered deltas safe to drop.
+    if (latestBusy?.busy === false) this.subAgentEvents.delete(load.sessionID)
     this.reschedulePendingSubAgentRefresh(load.sessionID)
   }
 

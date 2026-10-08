@@ -1,10 +1,10 @@
+import { CaretDown, CaretRight } from "@phosphor-icons/react"
 import { useLanguage } from "../../../context/language"
 import { useSession } from "../../../context/session"
-import { useVSCode } from "../../../context/vscode"
 import type { RaccoonMessagePart } from "../../../protocol"
 import { MarkdownLite } from "../../ui/markdown-lite"
 import { DiffPanel, diffFiles } from "./message-list-diff"
-import { filename, firstString, inputLines, stripAnsi } from "./message-list-format"
+import { filename, firstString, inputLines, isPathInputKey, stripAnsi } from "./message-list-format"
 import { QuestionDock } from "./question-dock"
 
 type TodoItem = {
@@ -166,10 +166,12 @@ export function parseTaskOutput(output: string): TaskOutput {
 
 function TodoOutput(props: { todos: TodoItem[] }) {
   const { t } = useLanguage()
-  const active = props.todos.filter((item) => item.status !== "completed")
+  const inProgress = props.todos.filter((item) => item.status === "in_progress")
+  const pending = props.todos.filter((item) => item.status === "pending")
   const completed = props.todos.filter((item) => item.status === "completed")
   const sections = [
-    { key: "active", title: t("tool.todo.active"), items: active },
+    { key: "in_progress", title: t("tool.todo.inProgress"), items: inProgress },
+    { key: "pending", title: t("tool.todo.active"), items: pending },
     { key: "completed", title: t("tool.todo.completed"), items: completed },
   ].filter((section) => section.items.length > 0)
 
@@ -217,7 +219,7 @@ function toolLabel(tool: string, t: ReturnType<typeof useLanguage>["t"]) {
   return tool in keys ? t(keys[tool as keyof typeof keys]) : tool
 }
 
-function toolInfo(part: RaccoonMessagePart, t: ReturnType<typeof useLanguage>["t"]) {
+export function toolInfo(part: RaccoonMessagePart, t: ReturnType<typeof useLanguage>["t"]) {
   const tool = part.tool ?? "tool"
   const label = toolLabel(tool, t)
   const file = firstString(part.input, ["filePath", "filepath", "file", "target_file"])
@@ -242,7 +244,52 @@ function toolInfo(part: RaccoonMessagePart, t: ReturnType<typeof useLanguage>["t
   }
 }
 
+function toolStatusState(status: string | undefined) {
+  if (!status) return undefined
+  const normalized = status.toLowerCase()
+  if (normalized === "completed" || normalized === "complete" || normalized === "done") return "completed"
+  if (normalized === "running" || normalized === "in_progress") return "running"
+  if (normalized === "pending") return "pending"
+  if (normalized === "failed" || normalized === "error") return "failed"
+  return normalized
+}
+
+function toolStatus(status: string | undefined, t: ReturnType<typeof useLanguage>["t"]) {
+  const state = toolStatusState(status)
+  if (state === "running") return t("tool.status.running")
+  if (state === "waiting_permission") return t("tool.status.waitingPermission")
+  if (state === "failed") return t("tool.status.failed")
+  return undefined
+}
+
+function toolDuration(startedAt: number | undefined, completedAt: number | undefined) {
+  if (startedAt === undefined || completedAt === undefined || completedAt < startedAt) return undefined
+  const seconds = Math.max(1, Math.round((completedAt - startedAt) / 1_000))
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  const remainingSeconds = seconds % 60
+  if (minutes < 60) return remainingSeconds ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`
+}
+
+function ToolEnd(props: { status?: string; arrow?: "expand" | "navigate" }) {
+  return (
+    <span className="tool-end">
+      {props.status ? <span data-slot="basic-tool-tool-arg">{props.status}</span> : null}
+      <span className={`tool-arrow${props.arrow ? "" : " placeholder"}`} aria-hidden="true">
+        {props.arrow === "expand" ? <CaretDown size={12} weight="bold" /> : null}
+        {props.arrow === "navigate" ? <CaretRight size={12} weight="bold" /> : null}
+      </span>
+    </span>
+  )
+}
+
 function ToolSummary(props: { info: ReturnType<typeof toolInfo>; status?: string; showArrow?: boolean }) {
+  const { t } = useLanguage()
+  const status = toolStatus(props.status, t)
+
   return (
     <summary data-component="tool-trigger">
       <span data-slot="basic-tool-tool-trigger-content">
@@ -253,19 +300,18 @@ function ToolSummary(props: { info: ReturnType<typeof toolInfo>; status?: string
               <span data-slot="basic-tool-tool-title">{props.info.title}</span>
               {props.info.subtitle ? <span data-slot="basic-tool-tool-subtitle">{props.info.subtitle}</span> : null}
             </span>
-            {props.status ? <span data-slot="basic-tool-tool-arg">{props.status}</span> : null}
           </span>
         </span>
       </span>
-      {props.showArrow ? <span className="tool-arrow">⌄</span> : null}
+      <ToolEnd status={status} arrow={props.showArrow ? "expand" : undefined} />
     </summary>
   )
 }
 
-export function ToolPart(props: { part: RaccoonMessagePart }) {
+export function ToolPart(props: { part: RaccoonMessagePart; waitingForPermission?: boolean; onToggle?: () => void }) {
   const language = useLanguage()
   const session = useSession()
-  const vscode = useVSCode()
+  const displayStatus = props.waitingForPermission ? "waiting_permission" : props.part.status
   const diffs = props.part.tool === "edit" || props.part.tool === "apply_patch" || props.part.tool === "patch" ? diffFiles(props.part) : []
   const onlyDiff = diffs.length > 0
   const lines = onlyDiff ? [] : inputLines(props.part)
@@ -278,8 +324,13 @@ export function ToolPart(props: { part: RaccoonMessagePart }) {
 
   if (todos.length > 0) {
     return (
-      <details className={`tool-part todo-part ${props.part.error ? "errored" : ""}`} open>
-        <ToolSummary info={info} status={props.part.status} />
+      <details
+        className={`tool-part todo-part ${props.part.error ? "errored" : ""}`}
+        data-status={toolStatusState(displayStatus)}
+        onToggle={props.onToggle}
+        open
+      >
+        <ToolSummary info={{ ...info, subtitle: language.t("tool.todo.count", { count: todos.length }) }} status={displayStatus} />
         <div data-slot="collapsible-content" className="tool-details">
           <TodoOutput todos={todos} />
         </div>
@@ -290,12 +341,21 @@ export function ToolPart(props: { part: RaccoonMessagePart }) {
   // The task (subagent) tool is not expandable inline — its child conversation lives
   // in a dedicated read-only view. Render a single clickable row that opens it.
   if (props.part.tool === "task" && subSessionID) {
-    const openSubAgent = () => vscode.postMessage({ type: "openSubAgent", sessionID: subSessionID, title: info.subtitle })
+    const subSession = session.state.subSessions?.[subSessionID]
+    const duration = toolDuration(subSession?.startedAt, subSession?.completedAt)
+    const status =
+      toolStatus(displayStatus, language.t) ??
+      (toolStatusState(displayStatus) === "completed" && subSession
+        ? duration
+          ? language.t("tool.task.completed", { count: subSession.toolcalls, duration })
+          : language.t("tool.task.toolcalls", { count: subSession.toolcalls })
+        : undefined)
     return (
       <button
         type="button"
         className={`tool-part task-part task-row ${props.part.error ? "errored" : ""}`}
-        onClick={openSubAgent}
+        data-status={toolStatusState(displayStatus)}
+        onClick={() => session.openSubAgent(subSessionID, info.subtitle)}
         title={language.t("tool.task.open")}
       >
         <span data-component="tool-trigger">
@@ -307,19 +367,22 @@ export function ToolPart(props: { part: RaccoonMessagePart }) {
                   <span data-slot="basic-tool-tool-title">{info.title}</span>
                   {info.subtitle ? <span data-slot="basic-tool-tool-subtitle">{info.subtitle}</span> : null}
                 </span>
-                {props.part.status ? <span data-slot="basic-tool-tool-arg">{props.part.status}</span> : null}
               </span>
             </span>
           </span>
         </span>
-        <span className="tool-arrow">›</span>
+        <ToolEnd status={status} arrow="navigate" />
       </button>
     )
   }
 
   return (
-    <details className={`tool-part ${props.part.error ? "errored" : ""}`}>
-      <ToolSummary info={info} status={props.part.status} showArrow={hasDetails} />
+    <details
+      className={`tool-part ${props.part.error ? "errored" : ""}`}
+      data-status={toolStatusState(displayStatus)}
+      onToggle={props.onToggle}
+    >
+      <ToolSummary info={info} status={displayStatus} showArrow={hasDetails} />
       {hasDetails ? (
         <div data-slot="collapsible-content" className="tool-details">
           {diffs.length > 0 ? (
@@ -333,7 +396,12 @@ export function ToolPart(props: { part: RaccoonMessagePart }) {
               {lines.map((line) => (
                 <div className="tool-kv" key={line.key}>
                   <span>{line.key}</span>
-                  <code>{line.value}</code>
+                  <code
+                    className={isPathInputKey(line.key) ? "tool-path-value" : undefined}
+                    title={isPathInputKey(line.key) ? line.value : undefined}
+                  >
+                    {line.value}
+                  </code>
                 </div>
               ))}
             </div>

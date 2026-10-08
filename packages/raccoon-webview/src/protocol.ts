@@ -68,6 +68,11 @@ export type RaccoonModel = {
   variants?: string[]
 }
 
+export type RaccoonAutocompleteModel = {
+  id: string
+  label: string
+}
+
 export type RaccoonProviderInfo = {
   id: string
   name: string
@@ -210,6 +215,10 @@ export type RaccoonMessage = {
   text: string
   parts: RaccoonMessagePart[]
   createdAt: number
+  completedAt?: number
+  agent?: string
+  providerID?: string
+  modelID?: string
   tokens?: RaccoonMessageTokens
   cost?: number
 }
@@ -263,6 +272,7 @@ export type RaccoonSubSession = {
 
 export type RaccoonMessagePart = {
   id: string
+  callID?: string
   type:
     | "text"
     | "reasoning"
@@ -486,6 +496,8 @@ export type RaccoonSubAgentView = {
   error?: string
 }
 
+export type RaccoonSubAgentTrailItem = Pick<RaccoonSubAgentView, "sessionID" | "title">
+
 export type RaccoonState = {
   view?: RaccoonView
   serverUrl?: string
@@ -510,6 +522,7 @@ export type RaccoonState = {
   messagesLoadedOlder?: boolean
   subSessions?: Record<string, RaccoonSubSession>
   subAgentView?: RaccoonSubAgentView
+  subAgentTrail?: RaccoonSubAgentTrailItem[]
   agents: RaccoonAgent[]
   rules?: RaccoonRule[]
   models: RaccoonModel[]
@@ -555,6 +568,8 @@ export type RaccoonState = {
   }
   modeModels?: Partial<Record<ChatMode, { providerID: string; modelID: string }>>
   autocompleteEnabled?: boolean
+  autocompleteModel?: string
+  autocompleteModels?: RaccoonAutocompleteModel[]
   mode: ChatMode
   loading: boolean
   busy?: boolean
@@ -595,6 +610,7 @@ export type WebviewToExtension =
         modeModels?: Partial<Record<ChatMode, { providerID: string; modelID: string } | undefined>>
         pluginLanguageMode?: RaccoonPluginLanguageMode
         autocompleteEnabled?: boolean
+        autocompleteModel?: string
       }
     }
   | { type: "setModelEnabled"; model: { providerID: string; modelID: string }; enabled: boolean }

@@ -1,8 +1,12 @@
 import * as os from "node:os"
 import * as path from "node:path"
-import { RaccoonProvider } from "@opencode-ai/raccoon-core"
+import { getAutocompleteModel, RaccoonAutocompleteService, RaccoonProvider } from "@opencode-ai/raccoon-core"
+import { SidecarAutocomplete } from "./autocomplete.js"
 import { SidecarConnection } from "./connection.js"
+import { sendFunctionAction } from "./function-actions.js"
+import { createFunctionRangeExtractor } from "./function-ranges.js"
 import { SidecarPlatform } from "./platform.js"
+import { TerminalContextRequests } from "./terminal-context.js"
 import { SidecarWebviewTransport } from "./transport.js"
 import { createStdoutWriter, readStdin, type HostToSidecar } from "./rpc.js"
 
@@ -12,6 +16,7 @@ import { createStdoutWriter, readStdin, type HostToSidecar } from "./rpc.js"
 // logging goes to stderr.
 
 const send = createStdoutWriter(process.stdout)
+const extractFunctionRanges = createFunctionRangeExtractor(path.join(__dirname, "grammars"), path.join(__dirname, "tree-sitter.wasm"))
 const log = (message: string) => {
   process.stderr.write(message.endsWith("\n") ? message : message + "\n")
   send({ type: "log", message: message.trimEnd() })
@@ -22,14 +27,24 @@ function start(init: Extract<HostToSidecar, { type: "init" }>): (message: HostTo
   const storageDir = path.join(os.tmpdir(), "raccoon-intellij")
 
   const connection = new SidecarConnection(directory, log)
+  const terminalRequests = new TerminalContextRequests(send)
   const platform = new SidecarPlatform({
     directory,
     locale: init.locale || "en",
     autocompleteEnabled: init.autocompleteEnabled ?? false,
+    autocompleteModel: getAutocompleteModel(init.autocompleteModel ?? "").id,
     storageDir,
     log,
+    onAutocompleteSettingsChange: (settings) => send({ type: "autocompleteSettings", ...settings }),
+    requestTerminalContext: () => terminalRequests.capture(),
+    openFile: (filePath, directory, line, column) => send({ type: "openFile", filePath, directory, line, column }),
   })
-  const transport = new SidecarWebviewTransport(send)
+  const autocomplete = new SidecarAutocomplete(
+    new RaccoonAutocompleteService(connection, directory, platform.settings.getAutocompleteModel(), { log }),
+    send,
+    { connection, settings: platform.settings },
+  )
+  const transport = new SidecarWebviewTransport(send, () => autocomplete.resetBackoff())
 
   const provider = new RaccoonProvider(connection, platform, transport)
 
@@ -42,7 +57,7 @@ function start(init: Extract<HostToSidecar, { type: "init" }>): (message: HostTo
   // Connect eagerly so the server is warming up before the user sends the first message.
   void connection.connect(directory).catch((error) => log(`initial backend connect failed: ${String(error)}`))
 
-  send({ type: "ready" })
+  send({ type: "ready", pluginLanguage: provider.getState().pluginLanguage ?? "en" })
 
   return (message: HostToSidecar) => {
     switch (message.type) {
@@ -51,7 +66,31 @@ function start(init: Extract<HostToSidecar, { type: "init" }>): (message: HostTo
         // which owns readiness gating + state refresh. See RaccoonMessageRouter.handle.
         transport.dispatch(message.message, message.source)
         break
+      case "autocompleteComplete":
+        autocomplete.complete(message.requestID, message.input)
+        break
+      case "autocompleteCancel":
+        autocomplete.cancel(message.requestID)
+        break
+      case "autocompleteAccept":
+        autocomplete.accept(message.completion, message.filepath)
+        break
+      case "terminalContextResult":
+        terminalRequests.receive(message)
+        break
+      case "functionAction":
+        void sendFunctionAction(provider, transport, message.action, message.context).catch((error) =>
+          log(`function action failed: ${String(error)}`),
+        )
+        break
+      case "functionRanges":
+        void extractFunctionRanges(message.fileName, message.text).then((ranges) =>
+          send({ type: "functionRangesResult", requestID: message.requestID, ranges }),
+        )
+        break
       case "dispose":
+        terminalRequests.dispose()
+        autocomplete.dispose()
         provider.dispose()
         connection.dispose()
         process.exit(0)
@@ -73,4 +112,3 @@ readStdin(process.stdin, (message) => {
   }
   if (message.type === "init") running = start(message)
 })
-

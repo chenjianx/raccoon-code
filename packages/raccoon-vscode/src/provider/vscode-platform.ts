@@ -1,5 +1,10 @@
 import * as vscode from "vscode"
-import { formatTerminalOutput, gitChangesContext } from "@opencode-ai/raccoon-core"
+import {
+  DEFAULT_AUTOCOMPLETE_MODEL,
+  formatTerminalOutput,
+  getAutocompleteModel,
+  gitChangesContext,
+} from "@opencode-ai/raccoon-core"
 import type { Disposable, DocumentRangeRef, Emitter, HostPlatform } from "@opencode-ai/raccoon-core"
 import { createEditorContext, getEditorContext } from "./editor-context.js"
 import { searchFiles } from "./file-search.js"
@@ -90,6 +95,12 @@ function readAutocompleteEnabled(): boolean {
   return vscode.workspace.getConfiguration("raccoon.autocomplete").get<boolean>("enableAutoTrigger") ?? true
 }
 
+function readAutocompleteModel(): string {
+  return getAutocompleteModel(
+    vscode.workspace.getConfiguration("raccoon.autocomplete").get<string>("model") ?? DEFAULT_AUTOCOMPLETE_MODEL.id,
+  ).id
+}
+
 // VSCode terminal capture: snapshot the clipboard, select+copy the active terminal, then
 // restore the clipboard. The pure formatting lives in context-mentions.formatTerminalOutput.
 async function captureTerminal(): Promise<string> {
@@ -149,6 +160,17 @@ export class VscodeHostPlatform implements HostPlatform {
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (!event.affectsConfiguration("raccoon.autocomplete.enableAutoTrigger")) return
         listener(readAutocompleteEnabled())
+      }),
+    getAutocompleteModel: () => readAutocompleteModel(),
+    setAutocompleteModel: async (model: string) => {
+      await vscode.workspace
+        .getConfiguration("raccoon.autocomplete")
+        .update("model", getAutocompleteModel(model).id, vscode.ConfigurationTarget.Global)
+    },
+    onAutocompleteModelChange: (listener: (model: string) => void): Disposable =>
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (!event.affectsConfiguration("raccoon.autocomplete.model")) return
+        listener(readAutocompleteModel())
       }),
   }
 

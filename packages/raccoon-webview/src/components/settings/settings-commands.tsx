@@ -236,8 +236,8 @@ export function SettingsCommands(props: {
             {selectedBuiltin ? (
               <>
                 <div className="settings-rules-editor-header settings-commands-editor-header">
-                  <span className="settings-rules-editor-title">
-                    {language.t("settings.commands.readonly.title", { name: selectedBuiltin.name })}
+                  <span className="settings-rules-editor-title settings-commands-readonly-title">
+                    /{selectedBuiltin.name}
                   </span>
                   <span className="settings-rules-scope-count settings-commands-scope builtin">
                     {language.t("settings.commands.scope.builtin")}
@@ -245,7 +245,6 @@ export function SettingsCommands(props: {
                 </div>
                 <div className="settings-rules-editor-body settings-commands-editor-body">
                   <div className="settings-commands-readonly settings-commands-field-wide">
-                    <div className="settings-commands-readonly-name">/{selectedBuiltin.name}</div>
                     {selectedBuiltin.description ? (
                       <div className="settings-commands-readonly-description">{selectedBuiltin.description}</div>
                     ) : (
@@ -281,6 +280,7 @@ export function SettingsCommands(props: {
                       <span>{language.t("settings.commands.scope.title")}</span>
                       <Select
                         value={draft.scope}
+                        ariaLabel={language.t("settings.commands.scope.title")}
                         disabled={!!savingRequestID}
                         options={[
                           { value: "project", label: language.t("settings.commands.scope.project") },
@@ -329,6 +329,7 @@ export function SettingsCommands(props: {
                     <span>{language.t("settings.commands.agent.title")}</span>
                     <Select
                       value={draft.agent}
+                      ariaLabel={language.t("settings.commands.agent.title")}
                       disabled={!!savingRequestID}
                       placeholder={language.t("settings.commands.agent.default")}
                       options={agents.map((agent) => ({ value: agent.name, label: agent.name }))}
