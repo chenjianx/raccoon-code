@@ -1,3 +1,4 @@
+import { AUTOCOMPLETE_MODELS, getAutocompleteModel } from "../services/autocomplete/models.js"
 import type {
   ChatMode,
   ExtensionToWebview,
@@ -83,6 +84,7 @@ export class RaccoonProvider {
   private eventRefreshTimer?: ReturnType<typeof setTimeout>
   private unsubscribeState?: () => void
   private readonly autocompleteConfigListener: Disposable
+  private readonly autocompleteModelConfigListener: Disposable
   private readonly streams = new RaccoonStreamScheduler((message) => this.postStreamMessage(message))
   private readonly webviewHost: WebviewTransport
   private readonly eventStream: RaccoonEventStream
@@ -119,12 +121,20 @@ export class RaccoonProvider {
       ...this.state,
       pluginLanguage: normalizePluginLanguage(this.platform.env.locale()),
       autocompleteEnabled: this.platform.settings.getAutocompleteEnabled(),
+      autocompleteModel: getAutocompleteModel(this.platform.settings.getAutocompleteModel()).id,
+      autocompleteModels: AUTOCOMPLETE_MODELS.map((model) => ({ id: model.id, label: model.label })),
     }
     this.didChangeState = this.platform.createEmitter<void>()
     this.unsubscribeState = this.connection.onStateChange((state) => this.onConnectionState(state))
     this.autocompleteConfigListener = this.platform.settings.onAutocompleteEnabledChange((enabled) => {
       if (enabled === this.state.autocompleteEnabled) return
       this.state = { ...this.state, autocompleteEnabled: enabled }
+      this.post()
+    })
+    this.autocompleteModelConfigListener = this.platform.settings.onAutocompleteModelChange((model) => {
+      const normalized = getAutocompleteModel(model).id
+      if (normalized === this.state.autocompleteModel) return
+      this.state = { ...this.state, autocompleteModel: normalized }
       this.post()
     })
     this.webviewHost.onMessage((message, source) => void this.handle(message, source))
@@ -415,6 +425,10 @@ export class RaccoonProvider {
     await this.appendContext(context)
   }
 
+  async appendCapturedEditorContext(context: EditorContext) {
+    await this.appendContext(context)
+  }
+
   private async appendContext(context: EditorContext) {
     await this.platform.ui.revealChat()
     this.webviewHost.post("chat", {
@@ -433,6 +447,10 @@ export class RaccoonProvider {
   async sendDocumentRangeContext(type: EditorContextAction, ref: DocumentRangeRef) {
     const context = await this.platform.editor.getRangeContext(ref)
     if (!context) return
+    await this.sendContextPrompt(type, context)
+  }
+
+  async sendCapturedEditorContext(type: EditorContextAction, context: EditorContext) {
     await this.sendContextPrompt(type, context)
   }
 
@@ -455,6 +473,13 @@ export class RaccoonProvider {
     this.post()
   }
 
+  async setAutocompleteModel(model: string) {
+    const normalized = getAutocompleteModel(model).id
+    await this.platform.settings.setAutocompleteModel(normalized)
+    this.state = { ...this.state, autocompleteModel: normalized }
+    this.post()
+  }
+
   private async saveSettings(
     message: Extract<WebviewToExtension, { type: "saveSettings" }>,
     source: RaccoonWebviewSource,
@@ -471,6 +496,9 @@ export class RaccoonProvider {
       }
       if (message.settings.autocompleteEnabled !== undefined) {
         await this.setAutocompleteEnabled(message.settings.autocompleteEnabled)
+      }
+      if (message.settings.autocompleteModel !== undefined) {
+        await this.setAutocompleteModel(message.settings.autocompleteModel)
       }
       this.webviewHost.post(source, { type: "settingsSaveResult", requestID: message.requestID, success: true })
     } catch (error) {
@@ -1197,6 +1225,7 @@ export class RaccoonProvider {
     if (this.eventRefreshTimer) clearTimeout(this.eventRefreshTimer)
     this.unsubscribeState?.()
     this.autocompleteConfigListener.dispose()
+    this.autocompleteModelConfigListener.dispose()
     this.sessions.dispose()
     this.streams.dispose()
     this.marketplace.dispose()

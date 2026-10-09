@@ -70,7 +70,7 @@ const Root = Spec.make(cliName, {
     Spec.make("upgrade", {
       description:
         process.env.RACCOON_CLI === "1"
-          ? "Upgrade Raccoon (unavailable until the standalone release)"
+          ? "Upgrade Raccoon to the latest or a specific version"
           : "Upgrade OpenCode to the latest or a specific version", // raccoon_change - brand upgrade help
       aliases: ["update"],
       params: {
@@ -88,7 +88,7 @@ const Root = Spec.make(cliName, {
     Spec.make("uninstall", {
       description:
         process.env.RACCOON_CLI === "1"
-          ? "Uninstall Raccoon (unavailable until the standalone release)"
+          ? "Uninstall Raccoon, keeping session data, configuration, and state"
           : "Uninstall OpenCode, keeping session data, configuration, and state", // raccoon_change - brand uninstall help
       params: {
         dryRun: Flag.boolean("dry-run").pipe(

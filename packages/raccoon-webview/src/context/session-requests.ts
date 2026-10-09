@@ -1,8 +1,8 @@
 import type { RaccoonMessage, RaccoonPermissionRequest, RaccoonSession, RaccoonSubSession } from "../protocol"
 
 function taskSessionID(part: { tool?: string; metadata?: Record<string, unknown> }) {
-  if (part.tool !== "task") return undefined
-  const sessionID = part.metadata?.sessionId
+  if (part.tool !== "subagent" && part.tool !== "task") return undefined
+  const sessionID = part.metadata?.sessionID ?? part.metadata?.sessionId
   if (typeof sessionID === "string" && sessionID.length > 0) return sessionID
   return undefined
 }

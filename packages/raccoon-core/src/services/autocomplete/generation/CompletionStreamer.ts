@@ -13,6 +13,7 @@ import { GeneratorReuseManager } from "./GeneratorReuseManager.js"
 export class CompletionStreamer {
   private streamTransformPipeline: StreamTransformPipeline
   private generatorReuseManager: GeneratorReuseManager
+  private model: string | undefined
 
   constructor(bracketMatching: BracketMatchingService, onError: (err: unknown) => void) {
     this.streamTransformPipeline = new StreamTransformPipeline(bracketMatching)
@@ -29,6 +30,11 @@ export class CompletionStreamer {
     stopTokens: string[],
     helper: HelperVars,
   ): AsyncGenerator<string> {
+    if (this.model !== llm.model) {
+      this.generatorReuseManager.currentGenerator?.cancel()
+      this.generatorReuseManager.currentGenerator = undefined
+      this.model = llm.model
+    }
     // Try to reuse pending requests if what the user typed matches start of completion
     const generator = this.generatorReuseManager.getGenerator(
       prefix,

@@ -435,10 +435,11 @@ describe("RaccoonProviderConfig", () => {
     })
   })
 
-  test("keeps global-only agents scoped to user when merged config includes them", async () => {
+  test("waits for cold-location registration and keeps agents scoped by ID", async () => {
     const dir = await mkdtemp(join(tmpdir(), "raccoon-agent-"))
     try {
       let state = { mode: "build" } as never
+      let registered = false
       const config = new RaccoonProviderConfig({
         client: async () => {
           throw new Error("not used")
@@ -463,7 +464,7 @@ describe("RaccoonProviderConfig", () => {
 
       await config.loadModels({
         config: { get: async () => [
-          { type: "document", path: join(dir, "raccoon.jsonc"), info: { agents: { "custom-agent-user": {
+          { type: "document", path: join(dir, "raccoon.jsonc"), info: { providers: { openai: { models: { custom: { name: "Custom", capabilities: { tools: true } } } } }, agents: { "custom-agent-user": {
             mode: "subagent",
             permissions: [
               { action: "shell", resource: "git *", effect: "allow" },
@@ -472,20 +473,27 @@ describe("RaccoonProviderConfig", () => {
           } } } },
           { type: "directory", path: dir },
         ] },
-        provider: { list: async () => ({ data: [{ id: "openai", integrationID: "openai-auth", name: "OpenAI", activation: "auto", package: "@ai-sdk/openai" }] }) },
+        provider: { list: async () => {
+          expect(registered).toBe(true)
+          return { data: [{ id: "openai", integrationID: "openai-auth", name: "OpenAI", activation: "auto", package: "@ai-sdk/openai" }] }
+        } },
         model: { list: async () => ({ data: [] }), default: async () => ({ data: null }) },
-        integration: { list: async () => ({ data: [{ id: "openai-auth", name: "OpenAI Auth", connections: [], methods: [{
+        integration: { list: async () => {
+          await Promise.resolve()
+          registered = true
+          return { data: [{ id: "openai-auth", name: "OpenAI Auth", connections: [], methods: [{
           id: "key", type: "key", label: "API key", form: [
             { type: "string", key: "account", title: "Account" },
             { type: "string", key: "secret", title: "Secret", hidden: true },
           ],
-        }] }] }) },
+        }] }] }
+        } },
         command: { list: async () => ({ data: [] }) },
         agent: {
           list: async () => ({
             data: [
               {
-                id: "custom-agent-user", name: "custom-agent-user",
+                id: "custom-agent-user", name: "Custom Agent",
                 description: "",
                 mode: "subagent",
                 hidden: false, permissions: [{ action: "shell", resource: "git *", effect: "allow" }], request: { headers: {}, body: {} },
@@ -501,6 +509,7 @@ describe("RaccoonProviderConfig", () => {
         permissionConfig: { bash: { "git *": "allow", "rm *": "deny" } },
         permission: [{ permission: "bash", pattern: "git *", action: "allow" }],
       })
+      expect((state as { customProviders: Array<{ models: unknown[] }> }).customProviders[0]?.models).toEqual([{ id: "custom", name: "Custom", supportsImage: false }])
       expect((state as { providerAuthMethods: Record<string, unknown> }).providerAuthMethods.openai).toEqual([{
         type: "api", label: "API key", prompts: [
           { type: "text", key: "account", message: "Account", placeholder: undefined },

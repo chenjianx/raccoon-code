@@ -23,13 +23,15 @@ class SidecarProcess(
     private val workingDir: String,
     private val raccoonBin: String?,
     private val onMessage: (String) -> Unit,
+    private val onTerminated: () -> Unit,
 ) {
     private val log = logger<SidecarProcess>()
     private var handler: OSProcessHandler? = null
     private val stdoutBuffer = StringBuilder()
 
     fun start() {
-        val cmd = GeneralCommandLine(nodePath, sidecarCjs)
+        // Swift's WASM grammar can exhaust Node 25's optimizing compiler; baseline compilation stays stable.
+        val cmd = GeneralCommandLine(nodePath, "--liftoff-only", sidecarCjs)
             .withWorkDirectory(workingDir)
             .withCharset(StandardCharsets.UTF_8)
         cmd.environment["OPENCODE_CALLER"] = "intellij"
@@ -46,21 +48,22 @@ class SidecarProcess(
 
             override fun processTerminated(event: ProcessEvent) {
                 log.info("Raccoon sidecar terminated (exit ${event.exitCode})")
+                onTerminated()
             }
         })
-        process.startNotify()
         handler = process
+        process.startNotify()
     }
 
     /** Writes one JSON-RPC frame to the sidecar's stdin. */
-    fun send(json: String) {
-        val stream = handler?.process?.outputStream ?: return
-        try {
+    fun send(json: String): Boolean {
+        val stream = handler?.process?.outputStream ?: return false
+        return runCatching {
             stream.write((json + "\n").toByteArray(StandardCharsets.UTF_8))
             stream.flush()
-        } catch (e: Exception) {
-            log.warn("failed to write to sidecar stdin", e)
         }
+            .onFailure { log.warn("failed to write to sidecar stdin", it) }
+            .isSuccess
     }
 
     fun dispose() {

@@ -93,7 +93,7 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
       const launch = start(
         {
           app: {
-            name: process.env.OPENCODE_CLIENT ?? OPENCODE_ARTIFACT,
+            name: process.env.RACCOON_CLI === "1" ? "raccoon" : (process.env.OPENCODE_CLIENT ?? OPENCODE_ARTIFACT),
             version: OPENCODE_VERSION,
             channel: OPENCODE_CHANNEL,
           },

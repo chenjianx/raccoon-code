@@ -46,6 +46,10 @@ export interface ConnectionPort {
   getClientAsync(directory: string): Promise<OpenCodeClient>
 }
 
+export type AutocompleteConnection = Pick<ConnectionPort, "getClientAsync"> & {
+  getConnectionState(): ConnectionState
+}
+
 // The two webview surfaces (sidebar chat + standalone settings panel). Implemented by the
 // platform's webview container; the orchestrator only posts protocol messages through it.
 export interface WebviewTransport {
@@ -103,6 +107,9 @@ export interface HostPlatform {
     getAutocompleteEnabled(): boolean
     setAutocompleteEnabled(enabled: boolean): Promise<void>
     onAutocompleteEnabledChange(listener: (enabled: boolean) => void): Disposable
+    getAutocompleteModel(): string
+    setAutocompleteModel(model: string): Promise<void>
+    onAutocompleteModelChange(listener: (model: string) => void): Disposable
   }
   storage?: KeyValueStore
   fs: {

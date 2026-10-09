@@ -791,7 +791,7 @@ export class RaccoonSessionController {
     if (state.subSessions?.[sessionID]) return true
     if (
       state.messages.some((message) =>
-        message.parts.some((part) => part.tool === "task" && part.metadata?.sessionId === sessionID),
+        message.parts.some((part) => (part.tool === "subagent" || part.tool === "task") && (part.metadata?.sessionID ?? part.metadata?.sessionId) === sessionID),
       )
     )
       return true
@@ -976,8 +976,8 @@ export class RaccoonSessionController {
     const ids = new Set<string>()
     for (const message of messages) {
       for (const part of message.parts) {
-        if (part.type !== "tool" || part.tool !== "task") continue
-        const sessionId = part.metadata?.sessionId
+        if (part.type !== "tool" || (part.tool !== "subagent" && part.tool !== "task")) continue
+        const sessionId = part.metadata?.sessionID ?? part.metadata?.sessionId
         if (typeof sessionId === "string" && sessionId) ids.add(sessionId)
       }
     }

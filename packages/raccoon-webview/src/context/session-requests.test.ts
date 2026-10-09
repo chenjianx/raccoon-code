@@ -82,6 +82,20 @@ describe("sessionPermissionRequest", () => {
     ).toBe("perm-child")
   })
 
+  test("returns a native V2 subagent permission before child-session data is loaded", () => {
+    expect(
+      sessionPermissionRequest({
+        sessions: [session({ id: "root" })],
+        messages: [{
+          ...message("msg"),
+          parts: [{ id: "tool-child", type: "tool", tool: "subagent", metadata: { sessionID: "child" } }],
+        }],
+        permissions: [permission("perm-child", "child")],
+        sessionID: "root",
+      })?.id,
+    ).toBe("perm-child")
+  })
+
   test("returns a parentID child permission as a fallback", () => {
     expect(
       sessionPermissionRequest({

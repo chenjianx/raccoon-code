@@ -173,6 +173,22 @@ function makeSendController(sessionStatus: "idle" | "busy" = "idle") {
 }
 
 describe("RaccoonSessionController loadMessages generation", () => {
+  test("loads native V2 subagent progress and tracks its child session", async () => {
+    const { controller, resolveMessages, getState, messagesQueue } = makeController()
+    const loading = controller.loadMessages("root")
+    await tick()
+    resolveMessages(0, [{ id: "assistant", type: "assistant", agent: "build", model: { providerID: "raccoon", id: "raccoon-chat" }, time: { created: 2 }, content: [
+      { id: "call_child", type: "tool", name: "subagent", time: { created: 2 }, state: { status: "running", input: { agent: "explore", description: "Inspect" }, metadata: { sessionID: "child" } } },
+    ] }])
+    await tick()
+    expect(messagesQueue[1]?.sessionID).toBe("child")
+    resolveMessages(1, [userMessage("child", "child_user", "inspect", 3)])
+    await loading
+    expect(getState().subSessions?.child?.startedAt).toBe(3)
+    expect(controller.isTrackedSubAgent("child")).toBe(true)
+    controller.dispose()
+  })
+
   test("discards a stale load when a newer one supersedes it", async () => {
     const { controller, resolveMessages, getState } = makeController()
 

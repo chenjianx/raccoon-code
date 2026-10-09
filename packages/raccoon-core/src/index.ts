@@ -4,6 +4,7 @@
 export { RaccoonProvider } from "./provider/index.js"
 
 export type {
+  AutocompleteConnection,
   ConnectionPort,
   ConnectionState,
   ServerConfig,
@@ -33,3 +34,7 @@ export {
   getAutocompleteModel,
   type AutocompleteModelDef,
 } from "./services/autocomplete/models.js"
+
+export { RaccoonAutocompleteService, type AutocompleteServiceHooks } from "./services/autocomplete/service.js"
+export type { AutocompleteInput, AutocompleteOutcome, AutocompletePosition, AutocompleteRange, SelectedCompletionInfo } from "./services/autocomplete/util/types.js"
+export { FUNCTION_LANGUAGES, functionLanguage, type FunctionLanguage } from "./function-symbols.js"

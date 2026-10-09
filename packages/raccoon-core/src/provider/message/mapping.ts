@@ -75,6 +75,7 @@ export function mapMessage(message: SessionMessageInfo): RaccoonMessage[] {
       const content = "content" in item.state ? item.state.content : undefined
       return {
         id: item.id,
+        callID: item.id,
         type: "tool",
         tool: item.name,
         status: item.state.status,
@@ -85,7 +86,7 @@ export function mapMessage(message: SessionMessageInfo): RaccoonMessage[] {
         metadata: "metadata" in item.state ? item.state.metadata : undefined,
       }
     })
-    return [{ ...base, role: "assistant", parts, text: messageText(parts), tokens: message.tokens, cost: message.cost }]
+    return [{ ...base, role: "assistant", completedAt: message.time.completed, agent: message.agent, providerID: message.model.providerID, modelID: message.model.id, parts, text: messageText(parts), tokens: message.tokens, cost: message.cost }]
   }
   if (message.type === "system" || message.type === "synthetic") {
     return [{ ...base, role: "system", parts: [{ id: `${message.id}:text`, type: "text", text: message.text }], text: message.text }]
@@ -109,11 +110,11 @@ export function mapSubSession(
     if (message.type !== "assistant") continue
     for (const part of message.content) {
       if (part.type !== "tool") continue
-      const sessionID = "metadata" in part.state && typeof part.state.metadata?.sessionId === "string" ? part.state.metadata.sessionId : undefined
+      const sessionID = "metadata" in part.state ? part.state.metadata?.sessionID ?? part.state.metadata?.sessionId : undefined
       tools.push({
         id: part.id,
         tool: part.name,
-        sessionID: part.name === "task" ? sessionID : undefined,
+        sessionID: (part.name === "subagent" || part.name === "task") && typeof sessionID === "string" ? sessionID : undefined,
         status: part.state.status,
         title: "metadata" in part.state && typeof part.state.metadata?.title === "string" ? part.state.metadata.title : undefined,
       })

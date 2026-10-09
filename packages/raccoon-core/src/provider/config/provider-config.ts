@@ -117,11 +117,13 @@ export class RaccoonProviderConfig {
     const saved = await this.modelState.load(active, { selected: this.selectedModel, model: this.modeModels })
     this.selectedModel = saved.selected
     this.modeModels = saved.model
+    // V2 activates location plugins asynchronously. integration.list waits for
+    // activation; read the plugin-backed catalogs only after that barrier.
+    const integrationResponse = await active.integration.list({ location: { directory: this.deps.directory() } })
     const [
       providerResponse,
       modelResponse,
       defaultResponse,
-      integrationResponse,
       commandResponse,
       agentResponse,
       configEntries,
@@ -129,7 +131,6 @@ export class RaccoonProviderConfig {
       active.provider.list({ location: { directory: this.deps.directory() } }),
       active.model.list({ location: { directory: this.deps.directory() } }),
       active.model.default({ location: { directory: this.deps.directory() } }),
-      active.integration.list({ location: { directory: this.deps.directory() } }),
       active.command.list({ location: { directory: this.deps.directory() } }),
       active.agent.list({ location: { directory: this.deps.directory() } }),
       active.config.get({ location: { directory: this.deps.directory() } }),
@@ -161,7 +162,7 @@ export class RaccoonProviderConfig {
         baseURL: typeof value.settings?.baseURL === "string" ? value.settings.baseURL : "",
         headers: value.headers,
         models: Object.entries(value.models).map(([id, model]) => ({
-          id, name: model.name ?? id, supportsImage: model.capabilities?.input.includes("image") ?? false,
+          id, name: model.name ?? id, supportsImage: model.capabilities?.input?.includes("image") ?? false,
         })),
       }]
     })
@@ -895,10 +896,10 @@ function visibleAgents(
   scopes: Record<string, RaccoonAgentScope> = {},
 ) {
   return agents.map((agent) => ({
-    name: agent.name,
+    name: agent.id,
     description: agent.description,
     mode: agent.mode,
-    native: !scopes[agent.name],
+    native: !scopes[agent.id],
     hidden: agent.hidden,
     temperature: typeof agent.request.body.temperature === "number" ? agent.request.body.temperature : undefined,
     topP: typeof agent.request.body.top_p === "number" ? agent.request.body.top_p : undefined,
@@ -906,8 +907,8 @@ function visibleAgents(
     steps: agent.steps,
     color: agent.color,
     permission: agent.permissions.map((rule) => ({ permission: permissionDisplayAction(rule.action), pattern: rule.resource, action: rule.effect })),
-    permissionConfig: overrides[agent.name],
-    configScope: scopes[agent.name],
+    permissionConfig: overrides[agent.id],
+    configScope: scopes[agent.id],
     model: agent.model ? { providerID: agent.model.providerID, modelID: agent.model.id } : undefined,
     prompt: agent.system,
     options: agent.request.body,

@@ -32,6 +32,7 @@ type ErrorKind = "fatal" | "retriable" | "transient"
  * gateway FIM route) both use this format.
  */
 function extractStatus(error: unknown): number | null {
+  if (error instanceof Error && error.name === "UnauthorizedError") return 401
   const msg = error instanceof Error ? error.message : String(error)
   const match = msg.match(/:\s*([45]\d{2})\b/)
   return match ? Number(match[1]) : null

@@ -1,5 +1,5 @@
-import type { RaccoonConnectionService } from "../../cli-backend/index.js"
-import { getAutocompleteModel } from "@opencode-ai/raccoon-core"
+import type { AutocompleteConnection } from "../../../provider/platform.js"
+import { getAutocompleteModel } from "../models.js"
 import type { ILLM } from "./types.js"
 
 /**
@@ -10,7 +10,7 @@ import type { ILLM } from "./types.js"
  */
 export class RaccoonFimLlm implements ILLM {
   constructor(
-    private readonly connectionService: RaccoonConnectionService,
+    private readonly connectionService: AutocompleteConnection,
     private readonly directory: string,
     public readonly model: string,
     private readonly hooks: {
@@ -33,14 +33,7 @@ export class RaccoonFimLlm implements ILLM {
 
     try {
       const stream = client.fim.complete(
-        {
-          prefix,
-          suffix,
-          model: this.model,
-          language: languageId,
-          maxTokens: 1024,
-          temperature,
-        },
+        { prefix, suffix, model: this.model, language: languageId, maxTokens: 1024, temperature },
         { signal },
       )
 
@@ -72,6 +65,6 @@ export class RaccoonFimLlm implements ILLM {
  * The backend manages credentials internally, so a connected state means we can
  * issue FIM requests.
  */
-export function hasValidCredentials(connectionService: RaccoonConnectionService): boolean {
+export function hasValidCredentials(connectionService: AutocompleteConnection): boolean {
   return connectionService.getConnectionState() === "connected"
 }

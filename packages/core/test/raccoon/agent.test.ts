@@ -1,8 +1,9 @@
 // raccoon_change start - verify Raccoon-only read-only Ask agent
-import { describe, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { Effect, Layer } from "effect"
 import { Agent } from "@opencode/core/agent"
 import { AgentPlugin } from "@opencode/core/plugin/agent"
+import { RaccoonAgents } from "@opencode/core/raccoon/agents"
 import { Permission } from "@opencode/core/permission"
 import { Session } from "@opencode/core/session"
 import type { PermissionEvaluation } from "@opencode/plugin/effect/permission"
@@ -26,10 +27,23 @@ const it = testEffect(
 )
 
 describe("Raccoon ask agent", () => {
+  test("rejects sort output files even when configured shell permission allows writing", async () => {
+    const evaluation: PermissionEvaluation = {
+      sessionID: Session.ID.make("ses_ask"), agent: Agent.ID.make("ask"), action: "shell",
+      resources: ["sort input.txt --output=result.txt"], effect: "allow",
+    }
+    await Effect.runPromise(RaccoonAgents.guard(evaluation))
+    expect(evaluation.effect).toBe("deny")
+  })
   it.effect("provides a primary read-only agent with safe shell inspection rules", () =>
     Effect.gen(function* () {
       const agents = yield* Agent.Service
       const hooks = yield* PluginHooks.Service
+      yield* agents.transform((editor) => {
+        editor.update(Agent.ID.make("ask"), (item) => {
+          item.permissions.push({ action: "external_directory", resource: "/config/*", effect: "allow" })
+        })
+      })
       yield* AgentPlugin.Plugin.effect(host({
         app: { name: "raccoon", version: "test", channel: "test" },
         agent: agentHost(agents),

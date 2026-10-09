@@ -8,16 +8,23 @@
   }
 
   .assistant-summary-actions {
-    @apply flex w-full items-center justify-end gap-1 pt-1 opacity-0 pointer-events-none transition-opacity duration-150;
+    @apply mt-2.5 flex min-h-7 w-auto items-center justify-start gap-1.5 text-[11px] leading-4 text-[var(--color-muted)];
   }
 
-  .session-turn:hover .assistant-summary-actions,
-  .session-turn:focus-within .assistant-summary-actions {
-    @apply opacity-100 pointer-events-auto;
+  .assistant-summary-actions.is-entering {
+    animation: assistant-summary-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .assistant-summary-meta {
+    @apply min-w-0 overflow-hidden text-ellipsis whitespace-nowrap tabular-nums;
   }
 
   .assistant-summary-copy {
-    @apply inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-[4px] border-0 bg-transparent p-0 text-[var(--color-muted)] hover:bg-[var(--color-hover)] hover:text-[var(--color-foreground)] focus:outline focus:outline-1 focus:outline-offset-[-1px] focus:outline-[var(--color-focus)];
+    @apply -mx-1.5 inline-flex h-7 w-7 shrink-0 appearance-none items-center justify-center rounded-[5px] border-0 bg-transparent p-0 text-[var(--color-muted)] transition-colors hover:text-[var(--color-foreground)] focus:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-[-1px] focus-visible:outline-[var(--color-focus)];
+  }
+
+  .assistant-summary-copy-icon {
+    @apply size-4 shrink-0;
   }
 
   .assistant-reasoning {
@@ -40,20 +47,24 @@
     @apply min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-semibold leading-[18px] text-[var(--color-foreground)];
   }
 
-  .chat-header-usage {
-    @apply flex shrink-0 items-center gap-1;
+  .chat-header-context-actions {
+    @apply inline-flex shrink-0 items-center rounded-[6px] border border-[var(--color-border)] bg-transparent;
   }
 
   .chat-header-compact {
-    @apply inline-flex size-[22px] shrink-0 items-center justify-center rounded-[6px] border border-[var(--color-border)] bg-transparent text-[var(--color-muted)] transition-colors hover:bg-[var(--color-hover-strong)] disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex size-[22px] shrink-0 items-center justify-center rounded-r-[5px] border-0 bg-transparent text-[var(--color-muted)] transition-colors hover:bg-[var(--color-hover-strong)] disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .chat-header-compact:only-child {
+    @apply rounded-l-[5px];
   }
 
   .chat-header-compact-icon {
     @apply size-[15px] shrink-0;
   }
 
-  .session-usage-total-inline {
-    @apply tabular-nums text-[13px] font-medium leading-[16px] text-[var(--color-muted)];
+  .session-usage-root + .chat-header-compact {
+    border-left: 1px solid var(--color-border);
   }
 
   .session-usage-root {
@@ -61,7 +72,11 @@
   }
 
   .session-usage-trigger-btn {
-    @apply inline-flex size-[22px] items-center justify-center rounded-[6px] border border-[var(--color-border)] bg-transparent text-[var(--color-muted)] transition-colors hover:bg-[var(--color-hover-strong)];
+    @apply inline-flex size-[22px] items-center justify-center rounded-l-[5px] border-0 bg-transparent text-[var(--color-muted)] transition-colors hover:bg-[var(--color-hover-strong)];
+  }
+
+  .session-usage-root:only-child .session-usage-trigger-btn {
+    @apply rounded-r-[5px];
   }
 
   .session-usage-trigger-btn.is-open {
@@ -367,11 +382,11 @@
   }
 
   .question-dock-next {
-    @apply border-[color-mix(in_srgb,var(--color-focus)_30%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-focus)_8%,var(--color-background))] font-medium text-[var(--color-foreground)];
+    @apply border-[var(--color-brand-border)] bg-[var(--color-brand-soft)] font-medium text-[var(--color-foreground)];
   }
 
   .question-dock-submit {
-    @apply border-[var(--color-focus)] bg-[var(--color-focus)] font-medium text-[var(--vscode-button-foreground,#ffffff)] hover:bg-[color-mix(in_srgb,var(--color-focus)_88%,light-dark(black,white))];
+    @apply border-[var(--color-brand-border)] bg-[var(--color-brand-solid)] font-medium text-[var(--color-brand-foreground)] hover:bg-[var(--color-brand-solid-hover)];
   }
 
   .question-dock-back {
@@ -399,19 +414,19 @@
   }
 
   .question-dock-option[data-picked="true"] {
-    @apply border-[color-mix(in_srgb,var(--color-focus)_50%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-focus)_8%,var(--color-background))];
+    @apply border-[var(--color-brand-border)] bg-[var(--color-brand-soft)];
   }
 
   .question-dock-option-marker {
-    @apply mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-focus)];
+    @apply mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-brand)];
   }
 
   .question-dock-option-marker[data-picked="true"] {
-    @apply border-[var(--color-focus)] bg-[color-mix(in_srgb,var(--color-focus)_16%,var(--color-background))];
+    @apply border-[var(--color-brand-border)] bg-[var(--color-brand-soft)];
   }
 
   .question-dock-option-dot {
-    @apply block h-1.5 w-1.5 rounded-full bg-[var(--color-focus)];
+    @apply block h-1.5 w-1.5 rounded-full bg-[var(--color-brand)];
   }
 
   .question-dock-option-main {
@@ -614,6 +629,30 @@
     @apply flex min-w-0 flex-col gap-2 empty:hidden;
   }
 
+  .permission-dock-context {
+    @apply m-0 flex flex-col gap-1.5 px-0.5 py-0.5;
+  }
+
+  .permission-dock-context-row {
+    @apply grid min-w-0 grid-cols-[76px_minmax(0,1fr)] gap-2;
+  }
+
+  .permission-dock-context-row dt {
+    @apply text-[var(--color-muted)];
+  }
+
+  .permission-dock-context-row dd {
+    @apply m-0 min-w-0 break-words text-[var(--color-foreground)];
+  }
+
+  .permission-dock-scope {
+    @apply flex flex-col gap-0.5;
+  }
+
+  .permission-dock-scope code {
+    @apply break-all font-mono text-[11px];
+  }
+
   .permission-dock-body .tool-diff-panel {
     @apply mt-0;
   }
@@ -651,11 +690,11 @@
   }
 
   .permission-dock-always {
-    @apply border-[color-mix(in_srgb,var(--color-focus)_30%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-focus)_8%,var(--color-background))] font-medium;
+    @apply border-[var(--color-brand-border)] bg-[var(--color-brand-soft)] font-medium;
   }
 
   .permission-dock-once {
-    @apply border-[var(--color-focus)] bg-[var(--color-focus)] font-medium text-[var(--vscode-button-foreground,#ffffff)] hover:bg-[color-mix(in_srgb,var(--color-focus)_88%,light-dark(black,white))];
+    @apply border-[var(--color-brand-border)] bg-[var(--color-brand-solid)] font-medium text-[var(--color-brand-foreground)] hover:bg-[var(--color-brand-solid-hover)];
   }
 
   .session-turn {
@@ -687,7 +726,7 @@
   }
 
   .user-message-row {
-    @apply flex w-full flex-col items-end gap-1;
+    @apply flex w-full flex-col items-end;
   }
 
   .user-message-row p {
@@ -695,7 +734,7 @@
   }
 
   .user-message-actions {
-    @apply flex w-full items-center justify-end gap-1 pt-1 opacity-0 pointer-events-none transition-opacity duration-150 empty:hidden;
+    @apply mr-px mt-0.5 flex w-auto items-center justify-end gap-px opacity-0 pointer-events-none transition-opacity duration-150 empty:hidden;
   }
 
   .user-message-row:hover .user-message-actions,
@@ -704,7 +743,7 @@
   }
 
   .user-message-icon-button {
-    @apply inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-[4px] border-0 bg-transparent p-0 text-[var(--color-muted)] hover:bg-[var(--color-hover)] hover:text-[var(--color-foreground)] focus:outline focus:outline-1 focus:outline-offset-[-1px] focus:outline-[var(--color-focus)] disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] border-0 bg-transparent p-0 text-[var(--color-muted)] transition-colors hover:bg-[var(--color-hover)] hover:text-[var(--color-foreground)] focus:outline focus:outline-1 focus:outline-offset-[-1px] focus:outline-[var(--color-focus)] disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .user-mention {
@@ -716,28 +755,47 @@
   }
 
   .revert-bar {
-    @apply mt-2 w-full rounded-[6px] border border-[color-mix(in_srgb,var(--color-focus)_26%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-background)_95%,var(--color-button))] px-2.5 py-2;
+    @apply mt-2 w-full overflow-hidden rounded-[6px] border border-[var(--color-border)] bg-[color-mix(in_srgb,var(--color-background)_97%,var(--color-button))];
   }
 
-  .revert-bar-head {
-    @apply flex items-center justify-between gap-2 text-[12px] font-medium text-[var(--color-foreground)];
+  .revert-bar-toggle {
+    @apply flex h-9 w-full appearance-none items-center gap-2 border-0 bg-transparent px-2.5 text-left text-[12px] text-[var(--color-muted)] transition-colors hover:bg-[var(--color-hover)] focus:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-[-1px] focus-visible:outline-[var(--color-focus)];
   }
 
-  .revert-bar-action,
-  .revert-bar-mini {
-    @apply inline-flex items-center gap-1 rounded-[6px] border border-[var(--color-border)] bg-[var(--color-button)] px-2 py-1 text-[12px] text-[var(--color-foreground)] hover:bg-[var(--color-hover)];
+  .revert-bar-chevron {
+    @apply shrink-0;
+  }
+
+  .revert-bar-title {
+    @apply shrink-0 font-medium text-[var(--color-foreground)];
+  }
+
+  .revert-bar-preview {
+    @apply min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap;
+  }
+
+  .revert-bar-chevron {
+    @apply ml-auto transition-transform duration-150;
+  }
+
+  .revert-bar.is-expanded .revert-bar-chevron {
+    @apply rotate-180;
   }
 
   .revert-bar-list {
-    @apply mt-2 flex flex-col gap-1;
+    @apply flex max-h-40 flex-col overflow-y-auto border-t border-[var(--color-border)] px-2.5 py-1;
   }
 
   .revert-bar-row {
-    @apply flex items-center justify-between gap-2;
+    @apply flex min-h-7 items-center justify-between gap-2;
   }
 
   .revert-bar-text {
     @apply min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] text-[var(--color-muted)];
+  }
+
+  .revert-bar-restore {
+    @apply inline-flex h-7 shrink-0 appearance-none items-center rounded-[5px] border-0 bg-transparent px-2 text-[12px] text-[var(--color-foreground)] transition-colors hover:bg-[var(--color-hover-strong)] focus:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-[-1px] focus-visible:outline-[var(--color-focus)] disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .turn-role {
@@ -762,6 +820,10 @@
 
   .working-dot {
     @apply animate-pulse;
+  }
+
+  .permission-waiting-dot {
+    @apply animate-none;
   }
 
   .tool-part {
@@ -809,6 +871,18 @@
     @apply overflow-hidden text-ellipsis whitespace-nowrap text-[var(--color-muted)];
   }
 
+  .tool-end {
+    @apply inline-flex shrink-0 items-center justify-end gap-2;
+  }
+
+  .tool-end [data-slot="basic-tool-tool-arg"] {
+    @apply min-w-[3em] text-right leading-[18px];
+  }
+
+  .tool-end .tool-arrow {
+    @apply inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-[4px] leading-[18px];
+  }
+
   .tool-part.task-row {
     @apply flex w-full cursor-pointer items-center justify-between gap-2 bg-transparent px-2.5 py-1.5 text-left;
   }
@@ -821,8 +895,8 @@
     @apply flex min-w-0 flex-1 items-center;
   }
 
-  .tool-part.task-row > .tool-arrow {
-    @apply shrink-0 text-[var(--color-muted)];
+  .tool-part.task-row .tool-end {
+    @apply text-[var(--color-muted)];
   }
 
   .tool-details {
@@ -935,6 +1009,10 @@
 
   .tool-kv code {
     @apply overflow-hidden text-ellipsis whitespace-nowrap rounded-[4px] bg-[var(--color-button)] px-1 py-0.5 font-mono text-[11px];
+  }
+
+  .tool-kv .tool-path-value {
+    @apply min-w-0 overflow-visible text-clip whitespace-pre-wrap break-all text-[var(--color-foreground)] select-text;
   }
 
   .tool-diff-panel {
@@ -1277,16 +1355,322 @@
   [data-component="markdown-table"] td {
     @apply border-b border-[var(--color-border)] px-2 py-1 align-top;
   }
+
+  /* Message workbench: keep the familiar user message treatment while the
+   * assistant response and tool activity read as one continuous working surface. */
+  .chat-view {
+    --chat-accent: var(--color-brand);
+    --chat-accent-hover: var(--color-brand-hover);
+    --chat-accent-soft: var(--color-brand-soft);
+  }
+
+  .chat-view .chat-header {
+    @apply min-h-10 px-2 pb-1.5 pt-2;
+  }
+
+  .chat-view .session-usage-ring-fill {
+    stroke: var(--chat-accent);
+  }
+
+  .chat-view .session-context-used {
+    background: var(--chat-accent);
+  }
+
+  .chat-view .session-context-used--hot {
+    background: color-mix(in srgb, var(--color-error, #e5484d) 70%, var(--chat-accent));
+  }
+
+  .chat-view .message-list {
+    @apply px-3 pb-2 pt-2;
+  }
+
+  .chat-view .session-turn {
+    @apply gap-2 border-b border-[color-mix(in_srgb,var(--color-border)_72%,transparent)] py-3;
+  }
+
+  .chat-view .session-turn:last-of-type {
+    @apply border-b-0;
+  }
+
+  .chat-view .turn-assistant-group + .turn-assistant-group {
+    @apply -mt-1;
+  }
+
+  .chat-view .turn-assistant {
+    @apply gap-1.5 rounded-none border-0 bg-transparent px-0 py-0;
+  }
+
+  .chat-view .turn-user {
+    @apply w-full;
+  }
+
+  .chat-view .user-message-content {
+    border-color: color-mix(in srgb, var(--chat-accent) 22%, var(--color-border));
+    background: color-mix(in srgb, var(--color-background) 94%, var(--chat-accent));
+  }
+
+  .chat-view .turn-role {
+    @apply text-[10px] tracking-[0.06em];
+  }
+
+  .chat-view .assistant-parts {
+    @apply gap-2 text-[13px] leading-[19px];
+  }
+
+  .chat-view .assistant-inline-questions {
+    @apply flex min-w-0 flex-col gap-2;
+  }
+
+  .chat-view .prose[data-component="markdown-lite"] {
+    @apply text-[13px] leading-[19px];
+  }
+
+  .chat-view .tool-activity {
+    @apply relative ml-1 flex min-w-0 flex-col gap-0 border-l border-[var(--color-border)] py-0.5 pl-3 pr-5;
+  }
+
+  .chat-view .tool-activity > .tool-part {
+    @apply relative rounded-none border-0 bg-transparent;
+  }
+
+  .chat-view .tool-activity > .tool-part::before {
+    position: absolute;
+    top: 11px;
+    left: -16px;
+    z-index: 1;
+    width: 7px;
+    height: 7px;
+    border: 2px solid var(--color-background);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--color-muted) 42%, var(--color-background));
+    box-sizing: content-box;
+    content: "";
+  }
+
+  .chat-view .tool-activity > .tool-part[data-status="completed"]::before {
+    background: var(--vscode-testing-iconPassed, #34a66f);
+  }
+
+  .chat-view .tool-activity > .tool-part[data-status="running"]::before {
+    background: var(--chat-accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--chat-accent) 12%, transparent);
+  }
+
+  .chat-view .tool-activity > .tool-part[data-status="waiting_permission"]::before {
+    border-color: var(--chat-accent);
+    background: var(--color-background);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--chat-accent) 12%, transparent);
+  }
+
+  .chat-view .tool-activity > .tool-part[data-status="pending"]::before {
+    border-color: color-mix(in srgb, var(--color-muted) 72%, var(--color-background));
+    background: var(--color-background);
+  }
+
+  .chat-view .tool-activity > .tool-part[data-status="failed"]::before,
+  .chat-view .tool-activity > .tool-part.errored::before {
+    background: var(--color-error);
+  }
+
+  .chat-view .tool-activity > .tool-part[open] {
+    @apply my-0.5 rounded-[7px] border border-[var(--color-border)] bg-[color-mix(in_srgb,var(--color-background)_96%,var(--color-hover))];
+  }
+
+  .chat-view .tool-activity .tool-dot {
+    @apply hidden;
+  }
+
+  .chat-view .tool-activity [data-slot="basic-tool-tool-trigger-content"] {
+    @apply flex-1;
+  }
+
+  .chat-view .tool-activity [data-slot="basic-tool-tool-info"],
+  .chat-view .tool-activity [data-slot="basic-tool-tool-info-structured"],
+  .chat-view .tool-activity [data-slot="basic-tool-tool-info-main"],
+  .chat-view .tool-activity [data-slot="basic-tool-tool-subtitle"] {
+    @apply flex-1;
+  }
+
+  .chat-view .tool-activity [data-slot="basic-tool-tool-arg"] {
+    @apply shrink-0 text-[11px] font-normal;
+  }
+
+  .chat-view .tool-activity > .tool-part[data-status="running"] [data-slot="basic-tool-tool-arg"] {
+    @apply font-medium text-[var(--chat-accent)];
+  }
+
+  .chat-view .tool-activity > .tool-part[data-status="waiting_permission"] [data-slot="basic-tool-tool-arg"] {
+    @apply font-medium text-[var(--chat-accent)];
+  }
+
+  .chat-view .tool-activity > .tool-part[data-status="failed"] [data-slot="basic-tool-tool-arg"],
+  .chat-view .tool-activity > .tool-part.errored [data-slot="basic-tool-tool-arg"] {
+    @apply font-medium text-[var(--color-error)];
+  }
+
+  .chat-view .tool-activity .tool-part > summary,
+  .chat-view .tool-activity .tool-part.task-row {
+    @apply rounded-[4px] px-2 py-1 transition-colors hover:bg-[var(--color-hover)];
+  }
+
+  .chat-view .tool-details {
+    @apply px-2 py-1;
+  }
+
+  .chat-view .tool-details .tool-section {
+    @apply gap-1 py-1;
+  }
+
+  .chat-view .tool-details .tool-output-shell,
+  .chat-view .tool-details .tool-output-markdown,
+  .chat-view .tool-details [data-component="tool-output"] {
+    @apply rounded-[4px] border-0 bg-[color-mix(in_srgb,var(--color-button)_65%,var(--color-background))];
+  }
+
+  .chat-view .tool-details .tool-output-shell pre,
+  .chat-view .tool-details .tool-output-plain,
+  .chat-view .tool-details .tool-md-code,
+  .chat-view .tool-details .tool-markdown {
+    @apply p-2;
+  }
+
+  .chat-view .tool-activity .tool-part > summary:hover .tool-arrow,
+  .chat-view .tool-activity .tool-part.task-row:hover .tool-arrow {
+    @apply bg-[color-mix(in_srgb,var(--color-hover)_78%,var(--color-background))];
+  }
+
+  .chat-view .todo-part .tool-details {
+    @apply px-2 py-1.5;
+  }
+
+  .chat-view .todo-output {
+    @apply gap-1.5;
+  }
+
+  .chat-view .todo-section {
+    @apply gap-0;
+  }
+
+  .chat-view .todo-section-header {
+    @apply px-1 py-1 normal-case tracking-normal;
+  }
+
+  .chat-view .todo-list {
+    @apply gap-0 border-t border-[var(--color-border)];
+  }
+
+  .chat-view .todo-row {
+    @apply rounded-none border-x-0 border-t-0 bg-transparent px-1 py-1.5 text-[11px] leading-[16px] last:border-b-0;
+  }
+
+  .chat-view .todo-row.in_progress {
+    @apply bg-[color-mix(in_srgb,var(--color-background)_96%,var(--chat-accent))];
+    box-shadow: inset 2px 0 0 var(--chat-accent);
+  }
+
+  .chat-view .message-scroll-bottom {
+    @apply bottom-2 right-px h-7 w-7 shadow-none;
+  }
+
+  .chat-view .tool-activity .tool-arrow {
+    @apply transition-transform duration-150;
+  }
+
+  .chat-view .tool-activity .tool-part[open] > summary .tool-arrow {
+    @apply rotate-180;
+  }
+
+  .chat-view .working-indicator {
+    @apply py-2.5;
+  }
+
+  .chat-view .working-dot {
+    background: var(--chat-accent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--chat-accent) 12%, transparent);
+  }
+
+  .chat-view .prompt-input-shell {
+    @apply mb-2 mt-0 flex w-full flex-col px-3 pt-2.5;
+  }
+
+  .chat-view .prompt-composer {
+    box-shadow: none;
+  }
+
+  .chat-view .prompt-action-button {
+    @apply rounded-[6px];
+  }
+
+  .chat-view .prompt-auto-approve-button {
+    @apply bg-[var(--color-button)] text-[var(--color-muted)] hover:bg-[var(--color-hover-strong)] hover:text-[var(--color-foreground)];
+  }
+
+  .chat-view .prompt-auto-approve-button[data-prompt-auto-approve-state="on"] {
+    @apply border-[var(--color-brand-border)] bg-[var(--color-brand-soft)] text-[var(--color-brand)];
+  }
+
+  .chat-view .prompt-auto-approve-button[data-prompt-auto-approve-state="on"]:hover {
+    @apply bg-[color-mix(in_srgb,var(--color-brand)_15%,var(--color-background))] text-[var(--color-brand-hover)];
+  }
+
+  .chat-view .prompt-send-button {
+    @apply bg-[var(--color-button)] text-[var(--color-muted)];
+  }
+
+  .chat-view .prompt-send-button:disabled {
+    @apply cursor-default border-transparent bg-[var(--color-button)] text-[var(--color-muted)] opacity-70;
+  }
+
+  .chat-view .prompt-send-button[data-prompt-send-state="ready"] {
+    @apply border-[var(--color-brand-border)] bg-[var(--color-brand-solid)] text-[var(--color-brand-foreground)] hover:bg-[var(--color-brand-solid-hover)];
+  }
+
+  .chat-view .prompt-send-button[data-prompt-send-state="busy"] {
+    @apply border-[var(--color-border)] bg-[var(--color-hover-strong)] text-[var(--color-foreground)];
+  }
+
+  .prompt-model-menu {
+    --chat-accent: var(--color-brand);
+    --chat-accent-soft: var(--color-brand-soft);
+  }
+
+  .chat-view .user-mention,
+  .chat-view .prose[data-component="markdown-lite"] a {
+    color: var(--chat-accent) !important;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .assistant-summary-actions.is-entering {
+      animation: none;
+    }
+
+    .chat-view .tool-activity .tool-arrow,
+    .chat-view .prompt-composer {
+      transition: none;
+    }
+  }
+}
+
+@keyframes assistant-summary-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @layer utilities {
-  body.vscode-dark .prompt-action-button,
-  body.vscode-high-contrast .prompt-action-button {
+  body.vscode-dark .prompt-send-button[data-prompt-send-state="ready"],
+  body.vscode-high-contrast .prompt-send-button[data-prompt-send-state="ready"] {
     color: #ffffff;
   }
 
-  body.vscode-dark .prompt-action-button:hover,
-  body.vscode-high-contrast .prompt-action-button:hover {
+  body.vscode-dark .prompt-send-button[data-prompt-send-state="ready"]:hover,
+  body.vscode-high-contrast .prompt-send-button[data-prompt-send-state="ready"]:hover {
     color: #ffffff;
   }
 }

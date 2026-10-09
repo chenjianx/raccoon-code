@@ -24,7 +24,7 @@ const inspection = [
   "git remote -v *",
 ]
 
-const mutation = ["*\n*", "*<(*", "*|*", "*;*", "*&&*", "*&*", "*$(*", "*`*", "*>*", "* > *", "*>>*", "* >> *", "*>|*", "* >| *", "sort -o *", "sort * -o *", "sort --output*"]
+const mutation = ["*\n*", "*<(*", "*|*", "*;*", "*&&*", "*&*", "*$(*", "*`*", "*>*", "* > *", "*>>*", "* >> *", "*>|*", "* >| *", "sort -o *", "sort * -o *", "sort --output*", "sort * --output*"]
 const shell = [
   { action: "shell", resource: "*", effect: "deny" as const },
   ...inspection.map((resource) => ({ action: "shell", resource, effect: "allow" as const })),

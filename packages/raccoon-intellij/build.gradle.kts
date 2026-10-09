@@ -15,9 +15,16 @@ repositories {
 }
 
 dependencies {
+  testImplementation(kotlin("test"))
+
   intellijPlatform {
     // Community edition is enough — we only need the platform + JCEF.
     intellijIdeaCommunity("2024.2")
+    bundledPlugin("com.intellij.java")
+    bundledPlugin("org.jetbrains.kotlin")
+    bundledPlugin("org.jetbrains.plugins.terminal")
+    testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Platform)
+    testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Plugin.Java)
   }
 }
 
@@ -39,6 +46,21 @@ kotlin {
 
 tasks {
   val cliDir = layout.projectDirectory.dir("../cli").asFile
+  val raccoonWebview = layout.projectDirectory.dir("../raccoon-webview").asFile
+  val webviewResources = layout.projectDirectory.dir("src/main/resources/webview").asFile
+  val prepareRaccoonWebview = register<Exec>("prepareRaccoonWebview") {
+    workingDir(raccoonWebview)
+    environment("RACCOON_WEBVIEW_OUTDIR", webviewResources.absolutePath)
+    commandLine("bun", "x", "vite", "build")
+  }
+  val prepareRaccoonSidecar = register<Exec>("prepareRaccoonSidecar") {
+    workingDir(layout.projectDirectory.asFile)
+    commandLine("bun", "run", "build:sidecar")
+  }
+  processResources {
+    dependsOn(prepareRaccoonWebview, prepareRaccoonSidecar)
+  }
+
   val localRun = gradle.startParameter.taskNames.any { it == "runIde" || it.endsWith(":runIde") }
   val prepareRaccoonBinaries = register<Exec>("prepareRaccoonBinaries") {
     workingDir(cliDir)

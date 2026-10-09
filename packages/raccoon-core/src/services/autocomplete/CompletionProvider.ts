@@ -70,7 +70,8 @@ export class CompletionProvider {
       // Cache lookup
       let completion: string | undefined = ""
       let cacheHit = false
-      const cached = this.options.useCache ? this.cache.get(prefix) : undefined
+      const cacheKey = JSON.stringify([llm.model, prefix])
+      const cached = this.options.useCache ? this.cache.get(cacheKey) : undefined
       if (cached !== undefined) {
         cacheHit = true
         completion = cached
@@ -108,7 +109,7 @@ export class CompletionProvider {
       }
 
       if (!cacheHit && this.options.useCache) {
-        this.cache.put(prefix, completion)
+        this.cache.put(cacheKey, completion)
       }
 
       return {

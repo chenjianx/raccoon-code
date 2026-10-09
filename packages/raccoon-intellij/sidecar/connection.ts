@@ -33,6 +33,10 @@ export class SidecarConnection implements ConnectionPort {
     return () => this.stateListeners.delete(listener)
   }
 
+  getConnectionState() {
+    return this.state
+  }
+
   getServerConfig() {
     return this.config
   }

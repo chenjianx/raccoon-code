@@ -24,6 +24,7 @@ describe("mapMessage", () => {
       id: "msg_1",
       type: "assistant",
       time: { created: 1000, completed: 2000 },
+      agent: "build", model: { providerID: "raccoon", id: "raccoon-pro-chat" },
       content: [
         { type: "text", text: "hello" },
         { type: "tool", id: "tool_1", name: "read", time: { created: 1100 }, state: { status: "completed", input: { filePath: "a.ts" }, content: [{ type: "text", text: "file content" }], metadata: { title: "Read a.ts" } } },
@@ -32,8 +33,9 @@ describe("mapMessage", () => {
       cost: 0,
     } as SessionMessageInfo)[0]
 
+    expect(mapped).toMatchObject({ completedAt: 2000, agent: "build", providerID: "raccoon", modelID: "raccoon-pro-chat" })
     expect(mapped?.text).toBe("hello")
-    expect(mapped?.parts[1]).toMatchObject({ tool: "read", title: "Read a.ts", output: "file content" })
+    expect(mapped?.parts[1]).toMatchObject({ callID: "tool_1", tool: "read", title: "Read a.ts", output: "file content" })
   })
 })
 
@@ -44,7 +46,7 @@ describe("mapSubSession", () => {
       id: "msg_2", type: "assistant", time: { created: 1100, completed: 4200 },
       content: [
         { id: "prt_2", type: "tool", name: "grep", state: { status: "completed", input: {}, content: [{ type: "text", text: "found" }], metadata: { title: "search foo" } } },
-        { id: "prt_3", type: "tool", name: "task", state: { status: "running", input: {}, metadata: { sessionId: "ses_grand" } } },
+        { id: "prt_3", type: "tool", name: "subagent", state: { status: "running", input: { agent: "explore" }, metadata: { sessionID: "ses_grand" } } },
       ],
     },
   ] as SessionMessageInfo[]
@@ -54,7 +56,7 @@ describe("mapSubSession", () => {
     expect(sub.sessionID).toBe("ses_child")
     expect(sub.status).toBe("running")
     expect(sub.toolcalls).toBe(2)
-    expect(sub.tools.map((tool) => tool.tool)).toEqual(["grep", "task"])
+    expect(sub.tools.map((tool) => tool.tool)).toEqual(["grep", "subagent"])
     expect(sub.tools[0]?.title).toBe("search foo")
     expect(sub.tools[1]?.sessionID).toBe("ses_grand")
     expect(sub.startedAt).toBe(1000)
