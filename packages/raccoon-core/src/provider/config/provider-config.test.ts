@@ -215,6 +215,52 @@ describe("RaccoonProviderConfig", () => {
     }
   })
 
+  test("shows device authorization instructions before opening the browser and polling", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "raccoon-device-auth-"))
+    const events: unknown[] = []
+    try {
+      const client = {
+        config: { get: async () => [{ type: "directory", path: dir }] },
+        provider: { get: async () => ({ data: { id: "github-copilot", integrationID: "github-copilot" } }) },
+        integration: {
+          get: async () => ({ data: {
+            id: "github-copilot", methods: [{ type: "oauth", id: "device", label: "GitHub Copilot" }],
+          } }),
+          oauth: {
+            connect: async () => ({ data: {
+              attemptID: "device-1", mode: "auto", url: "https://github.com/login/device", instructions: "Enter code: ABCD-EFGH",
+            } }),
+            status: async () => {
+              events.push("poll")
+              return { data: { status: "complete" } }
+            },
+          },
+        },
+        location: { reload: async () => {} },
+      }
+      const config = new RaccoonProviderConfig({
+        client: async () => client as never, directory: () => dir,
+        getState: () => ({}) as never, setState: () => {}, post: () => {},
+        refresh: async () => {}, withLoading: async (run) => await run(),
+        openExternal: async (url) => { events.push(url) },
+        promptInput: async () => { throw new Error("Device login does not ask for a callback code") },
+        webviewHost: { post: (_source: unknown, message: unknown) => events.push(message) } as never,
+        pluginLanguage: () => "en",
+      })
+
+      await config.connectProvider({ type: "connectProvider", providerID: "github-copilot", methodIndex: 0 })
+
+      expect(events).toEqual([
+        { type: "providerAuthorization", providerID: "github-copilot", instructions: "Enter code: ABCD-EFGH" },
+        "https://github.com/login/device",
+        "poll",
+        { type: "providerConnectFinished", providerID: "github-copilot" },
+      ])
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   test("stores an exact native custom provider and removes it", async () => {
     const dir = await mkdtemp(join(tmpdir(), "raccoon-provider-"))
     const globalDir = await mkdtemp(join(tmpdir(), "raccoon-global-"))
@@ -477,7 +523,12 @@ describe("RaccoonProviderConfig", () => {
           expect(registered).toBe(true)
           return { data: [{ id: "openai", integrationID: "openai-auth", name: "OpenAI", activation: "auto", package: "@ai-sdk/openai" }] }
         } },
-        model: { list: async () => ({ data: [] }), default: async () => ({ data: null }) },
+        model: {
+          list: async () => ({ data: [
+            { id: "custom", modelID: "upstream", providerID: "openai", name: "Custom", enabled: true, variants: [] },
+          ] }),
+          default: async () => ({ data: { id: "custom", modelID: "upstream", providerID: "openai" } }),
+        },
         integration: { list: async () => {
           await Promise.resolve()
           registered = true
@@ -486,7 +537,12 @@ describe("RaccoonProviderConfig", () => {
             { type: "string", key: "account", title: "Account" },
             { type: "string", key: "secret", title: "Secret", hidden: true },
           ],
-        }] }] }
+        }] }, {
+          id: "github-copilot", name: "GitHub Copilot", connections: [], methods: [
+            { type: "env", names: ["GITHUB_TOKEN"] },
+            { id: "device", type: "oauth", label: "GitHub login" },
+          ],
+        }] }
         } },
         command: { list: async () => ({ data: [] }) },
         agent: {
@@ -510,6 +566,10 @@ describe("RaccoonProviderConfig", () => {
         permission: [{ permission: "bash", pattern: "git *", action: "allow" }],
       })
       expect((state as { customProviders: Array<{ models: unknown[] }> }).customProviders[0]?.models).toEqual([{ id: "custom", name: "Custom", supportsImage: false }])
+      expect((state as { providerAuthMethods: Record<string, unknown> }).providerAuthMethods["github-copilot"]).toEqual([
+        { type: "oauth", label: "GitHub login", prompts: undefined },
+      ])
+      expect((state as { defaults: Record<string, string> }).defaults).toEqual({ openai: "custom" })
       expect((state as { providerAuthMethods: Record<string, unknown> }).providerAuthMethods.openai).toEqual([{
         type: "api", label: "API key", prompts: [
           { type: "text", key: "account", message: "Account", placeholder: undefined },

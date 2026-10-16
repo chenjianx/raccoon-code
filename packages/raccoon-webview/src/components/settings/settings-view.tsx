@@ -236,7 +236,9 @@ export const SettingsView = memo(function SettingsView(props: { onClose?: () => 
         </nav>
 
         <div className="settings-content">
-          <div className={`settings-content-inner h-full${tab === "rules" ? " settings-content-inner-rules" : ""}`}>
+          <div
+            className={`settings-content-inner ${tab === "rules" || tab === "commands" || tab === "mcp" || tab === "skills" ? "h-full" : "min-h-full"}${tab === "rules" ? " settings-content-inner-rules" : ""}`}
+          >
             {tab === "models" ? (
               <SettingsModels
                 agents={modeAgents}

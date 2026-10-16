@@ -31,6 +31,7 @@ export type SidecarToHost =
   | { type: "autocompleteSettings"; enabled: boolean; model: string }
   | { type: "captureTerminal"; requestID: string }
   | { type: "openFile"; filePath: string; directory: string; line?: number; column?: number }
+  | { type: "openExternal"; url: string }
   | { type: "functionRangesResult"; requestID: string; ranges: { type: string; start: number; end: number }[] }
   | { type: "ready"; pluginLanguage: string }
 

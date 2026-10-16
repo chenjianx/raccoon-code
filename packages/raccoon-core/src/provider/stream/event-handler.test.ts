@@ -5,6 +5,8 @@ import { RaccoonEventHandler } from "./event-handler"
 function createHandler(trackedSubAgentSessionID = "child") {
   const messages: ExtensionToWebview[] = []
   const deltas: string[] = []
+  const parts: { id: string; field: string }[] = []
+  const ended: { sessionID: string; messageID: string; partID: string; field: string; text: string }[] = []
   const refreshed: string[] = []
   const states: RaccoonState[] = []
   let state = { activeSessionID: "root", loading: false, busy: false } as RaccoonState
@@ -21,18 +23,41 @@ function createHandler(trackedSubAgentSessionID = "child") {
     completeTrackedSubAgent: () => {},
     postMessage: (message: ExtensionToWebview) => messages.push(message),
     postSubAgentEvent: (_sessionID: string, message: ExtensionToWebview) => messages.push(message),
-    pushPartDelta: (_sessionID: string, _messageID: string, _partID: string, _field: string, delta: string) => deltas.push(delta),
+    pushPartDelta: (_sessionID: string, _messageID: string, partID: string, field: string, delta: string) => {
+      parts.push({ id: partID, field })
+      deltas.push(delta)
+    },
     pushSubAgentPartDelta: (_sessionID: string, _messageID: string, _partID: string, _field: string, delta: string) => deltas.push(delta),
+    pushPartEnd: (sessionID: string, messageID: string, partID: string, field: string, text: string) =>
+      ended.push({ sessionID, messageID, partID, field, text }),
     flushStreams: () => {},
     clearPromptRefresh: () => {},
     recoverPendingQuestions: async () => {},
     refreshMcpInstalled: () => {},
     onReauthRequired: () => {},
   })
-  return { handler, messages, deltas, refreshed, states }
+  return { handler, messages, deltas, refreshed, states, parts, ended }
 }
 
 describe("RaccoonEventHandler v2 events", () => {
+  test.each(["root", "child"])("publishes authoritative text and reasoning end values for %s", (sessionID) => {
+    const { handler, ended, refreshed } = createHandler()
+    handler.handleGlobal({ type: "session.text.ended", data: { sessionID, assistantMessageID: "msg", ordinal: 0, text: "Hello" } } as never)
+    handler.handleGlobal({ type: "session.reasoning.ended", data: { sessionID, assistantMessageID: "msg", ordinal: 0, text: "" } } as never)
+    expect(ended).toEqual([
+      { sessionID, messageID: "msg", partID: "msg:text:0", field: "text", text: "Hello" },
+      { sessionID, messageID: "msg", partID: "msg:reasoning:0", field: "reasoning", text: "" },
+    ])
+    expect(refreshed).toEqual([sessionID, sessionID])
+  })
+
+  test("keeps text and reasoning streams with the same ordinal separate", () => {
+    const { handler, parts } = createHandler()
+    handler.handleGlobal({ type: "session.reasoning.delta", data: { sessionID: "root", assistantMessageID: "msg", ordinal: 0, delta: "thinking" } } as never)
+    handler.handleGlobal({ type: "session.text.delta", data: { sessionID: "root", assistantMessageID: "msg", ordinal: 0, delta: "answer" } } as never)
+    expect(parts).toEqual([{ id: "msg:reasoning:0", field: "reasoning" }, { id: "msg:text:0", field: "text" }])
+  })
+
   test("ignores session events outside the active session tree or workspace", () => {
     const { handler, messages, deltas, states } = createHandler("child-a")
     handler.handleGlobal({ type: "session.status", location: { directory: "/elsewhere" }, data: { sessionID: "root", status: { type: "running" } } } as never)

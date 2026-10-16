@@ -10,7 +10,7 @@ afterEach(() => {
   Object.defineProperty(globalThis, "acquireVsCodeApi", { configurable: true, value: undefined })
 })
 
-function renderSettings(onClose?: () => void) {
+function renderSettings(onClose?: () => void, connectedCopilot = false) {
   const state = {
     view: "settings",
     raccoonLoggedIn: true,
@@ -19,6 +19,9 @@ function renderSettings(onClose?: () => void) {
     agents: [],
     models: [],
     providers: [
+      ...(connectedCopilot ? [{
+        id: "github-copilot", name: "GitHub Copilot", connected: true, modelCount: 1, enabledModelCount: 1,
+      }] : []),
       {
         id: "comp",
         name: "comp",
@@ -67,7 +70,7 @@ test("standalone settings avoid a duplicate inner title and bound the working co
   const html = renderSettings()
 
   expect(html).not.toContain('class="settings-header"')
-  expect(html).toContain('<div class="settings-content"><div class="settings-content-inner h-full">')
+  expect(html).toContain('<div class="settings-content"><div class="settings-content-inner min-h-full">')
   expect(html).toContain("管理 Raccoon 账号及模型服务连接。")
 })
 
@@ -85,4 +88,8 @@ test("provider settings separate the account, connected list, and custom provide
   expect(html).toContain('aria-label="已连接提供商"')
   expect(html).toContain('aria-label="添加自定义提供商"')
   expect(html).toContain('class="ui-button ui-button--primary settings-provider-add-button"')
+})
+
+test("a connected GitHub Copilot is not offered again in popular providers", () => {
+  expect(renderSettings(undefined, true).match(/<span class="settings-provider-name">GitHub Copilot<\/span>/g)).toHaveLength(1)
 })

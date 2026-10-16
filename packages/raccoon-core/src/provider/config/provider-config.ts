@@ -138,14 +138,18 @@ export class RaccoonProviderConfig {
     // 暂时隐藏「免费模型」：opencode provider 提供的免费模型不再进入模型列表，
     // 因此对话/设置的模型选择器和默认模型解析都不会再出现它们。恢复时删除此过滤即可。
     const visibleProviders = providerResponse.data.filter((provider) => provider.id !== "opencode")
-    this.providerAuthMethods = Object.fromEntries(visibleProviders.map((provider) => {
-      const integration = integrationResponse.data.find((entry) => entry.id === (provider.integrationID ?? provider.id))
-      return [provider.id, integration?.methods.flatMap((method): RaccoonProviderAuthMethod[] => {
+    // Available providers exclude first-time connections; integrations retain their login methods.
+    this.providerAuthMethods = Object.fromEntries(integrationResponse.data.map((integration) => {
+      return [integration.id, integration.methods.flatMap((method): RaccoonProviderAuthMethod[] => {
         if (method.type === "oauth") return [{ type: "oauth", label: method.label, prompts: authPrompts(method.form) }]
         if (method.type === "key") return [{ type: "api", label: method.label ?? "API key", prompts: authPrompts(method.form) }]
         return []
-      }) ?? []]
+      })]
     }))
+    visibleProviders.forEach((provider) => {
+      if (!provider.integrationID) return
+      this.providerAuthMethods[provider.id] = this.providerAuthMethods[provider.integrationID] ?? []
+    })
     const models = mapProviderModels(modelResponse.data, visibleProviders, integrationResponse.data, this.disabledModels)
     const providers = mapProviders(visibleProviders, integrationResponse.data, models)
     const globalRoot = configEntries.find((entry) => entry.type === "directory")?.path
@@ -185,7 +189,7 @@ export class RaccoonProviderConfig {
       collectCommands(active, this.deps.directory(), "user").catch(() => []),
     ])
     const raccoonLoggedIn = integrationResponse.data.some((entry) => entry.id === "raccoon" && entry.connections.some((connection) => connection.type === "credential" && connection.method === "oauth"))
-    const defaults = defaultResponse.data ? { [defaultResponse.data.providerID]: defaultResponse.data.modelID } : {}
+    const defaults = defaultResponse.data ? { [defaultResponse.data.providerID]: defaultResponse.data.id } : {}
     this.deps.setState({
       ...this.deps.getState(),
       models,
@@ -358,6 +362,11 @@ export class RaccoonProviderConfig {
           ...(message.inputs ? { answer: message.inputs } : {}),
         }, { signal: abort.signal })
         if (cancelled()) return
+        this.deps.webviewHost.post("settings", {
+          type: "providerAuthorization",
+          providerID: message.providerID,
+          instructions: authorization.data.instructions,
+        } satisfies ExtensionToWebview)
         if (authorization.data.url) await this.deps.openExternal(authorization.data.url)
         if (authorization.data.mode === "code") {
           const code = await this.deps.promptInput({

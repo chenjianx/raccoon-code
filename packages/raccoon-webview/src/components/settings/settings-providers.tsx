@@ -17,12 +17,12 @@ const popularProviders = [
   { id: "anthropic", name: "Anthropic", noteKey: "settings.providers.anthropic.note" },
   { id: "google", name: "Google", noteKey: "settings.providers.google.note" },
   { id: "openrouter", name: "OpenRouter", noteKey: "settings.providers.openrouter.note" },
-  { id: "copilot", name: "GitHub Copilot", noteKey: "settings.providers.copilot.note" },
+  { id: "github-copilot", name: "GitHub Copilot", noteKey: "settings.providers.copilot.note" },
 ] as const
 
 // 展示国外供应商的「热门供应商」发现入口。
 // 隐藏时将此开关改回 true 即可只保留自定义添加入口。
-const HIDE_FOREIGN_PROVIDERS = true
+const HIDE_FOREIGN_PROVIDERS = false
 
 // raccoon (login) and opencode (free models) get their own pinned cards at the
 // top, so they are excluded from the dynamic connected/popular sections.
@@ -85,6 +85,7 @@ export function SettingsProviders() {
   const [providerDrafts, setProviderDrafts] = useState<Record<string, ProviderDraft>>({})
   const [connectingProviderID, setConnectingProviderID] = useState<string>()
   const [providerError, setProviderError] = useState<string>()
+  const [providerAuthorization, setProviderAuthorization] = useState<{ providerID: string; instructions: string }>()
   const [pendingAction, setPendingAction] = useState<{ kind: "disconnect" | "delete"; providerID: string; name: string }>()
   const [custom, setCustom] = useState<{
     providerID: string
@@ -143,8 +144,13 @@ export function SettingsProviders() {
         if (!message.error) setRaccoonDialogOpen(false)
         return
       }
+      if (message.type === "providerAuthorization") {
+        setProviderAuthorization({ providerID: message.providerID, instructions: message.instructions })
+        return
+      }
       if (message.type === "providerConnectFinished") {
         setConnectingProviderID(undefined)
+        setProviderAuthorization(undefined)
         setProviderError(message.error)
         if (!message.error) setActiveProvider(undefined)
         return
@@ -340,6 +346,7 @@ export function SettingsProviders() {
       return
     }
     setProviderError(undefined)
+    setProviderAuthorization(undefined)
     setConnectingProviderID(providerID)
     actions.connectProvider({
       providerID,
@@ -358,6 +365,7 @@ export function SettingsProviders() {
   const closeProviderDialog = () => {
     if (activeProvider && connectingProviderID === activeProvider) actions.cancelProviderConnect(activeProvider)
     setConnectingProviderID(undefined)
+    setProviderAuthorization(undefined)
     setActiveProvider(undefined)
   }
 
@@ -541,6 +549,7 @@ export function SettingsProviders() {
           draft={providerDraft(activeProvider)}
           error={providerError}
           connecting={connectingProviderID === activeProvider}
+          instructions={providerAuthorization?.providerID === activeProvider ? providerAuthorization.instructions : undefined}
           onClose={closeProviderDialog}
           onMethodChange={(methodIndex) => {
             updateProviderDraft(activeProvider, (current) => ({ ...current, methodIndex, inputs: {} }))

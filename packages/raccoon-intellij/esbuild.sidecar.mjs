@@ -1,5 +1,6 @@
 import esbuild from "esbuild"
 import { copyFile, mkdir, writeFile } from "node:fs/promises"
+import { createRequire } from "node:module"
 import path from "node:path"
 import { FUNCTION_LANGUAGES } from "../raccoon-core/src/function-symbols.ts"
 
@@ -11,6 +12,9 @@ await esbuild.build({
   format: "cjs",
   platform: "node",
   target: "node20",
+  // Use the dependency's CJS entry: its ESM runtime calls createRequire(import.meta.url),
+  // which becomes createRequire(undefined) when bundled as CommonJS.
+  alias: { "web-tree-sitter": createRequire(import.meta.url).resolve("web-tree-sitter") },
   minify: production,
   sourcemap: !production,
   outfile: "src/main/resources/sidecar/sidecar.cjs",

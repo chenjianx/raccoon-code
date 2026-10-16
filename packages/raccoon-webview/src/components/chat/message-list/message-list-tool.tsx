@@ -224,6 +224,10 @@ function toolLabel(tool: string, t: ReturnType<typeof useLanguage>["t"]) {
 export function toolInfo(part: RaccoonMessagePart, t: ReturnType<typeof useLanguage>["t"]) {
   const tool = part.tool ?? "tool"
   const label = toolLabel(tool, t)
+  if (tool === "read") {
+    const path = firstString(part.input, ["path", "filePath", "filepath", "file", "target_file"])
+    if (path) return { title: label, subtitle: filename(path), path }
+  }
   const file = firstString(part.input, ["filePath", "filepath", "file", "target_file"])
   if (file && (tool === "read" || tool === "edit" || tool === "write")) {
     return { title: label, subtitle: filename(file) }
@@ -300,7 +304,7 @@ function ToolSummary(props: { info: ReturnType<typeof toolInfo>; status?: string
           <span data-slot="basic-tool-tool-info-structured">
             <span data-slot="basic-tool-tool-info-main">
               <span data-slot="basic-tool-tool-title">{props.info.title}</span>
-              {props.info.subtitle ? <span data-slot="basic-tool-tool-subtitle">{props.info.subtitle}</span> : null}
+              {props.info.subtitle ? <span data-slot="basic-tool-tool-subtitle" title={props.info.path ?? props.info.subtitle}>{props.info.subtitle}</span> : null}
             </span>
           </span>
         </span>
@@ -367,7 +371,7 @@ export function ToolPart(props: { part: RaccoonMessagePart; waitingForPermission
               <span data-slot="basic-tool-tool-info-structured">
                 <span data-slot="basic-tool-tool-info-main">
                   <span data-slot="basic-tool-tool-title">{info.title}</span>
-                  {info.subtitle ? <span data-slot="basic-tool-tool-subtitle">{info.subtitle}</span> : null}
+                  {info.subtitle ? <span data-slot="basic-tool-tool-subtitle" title={info.subtitle}>{info.subtitle}</span> : null}
                 </span>
               </span>
             </span>

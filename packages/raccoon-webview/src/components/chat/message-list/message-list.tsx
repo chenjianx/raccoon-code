@@ -37,6 +37,22 @@ export function MessageList(
   const historyAnchorRef = useRef<{ sessionID: string; height: number; top: number } | undefined>(undefined)
   const [showScrollBottom, setShowScrollBottom] = useState(false)
 
+  useLayoutEffect(() => {
+    const root = rootRef.current
+    if (!root) return
+    // Resizing the panel or composer changes the visible area without changing messages.
+    const observer = new ResizeObserver(() => {
+      if ((!readonly || follow) && followBottomRef.current) {
+        root.scrollTo({ top: root.scrollHeight, behavior: "auto" })
+      }
+      const atBottom = root.scrollHeight - root.scrollTop - root.clientHeight < 48
+      followBottomRef.current = atBottom
+      setShowScrollBottom(!atBottom)
+    })
+    observer.observe(root)
+    return () => observer.disconnect()
+  }, [readonly, follow])
+
   const updateScrollButton = () => {
     const root = rootRef.current
     if (!root) return

@@ -9,6 +9,24 @@ afterEach(() => {
   Object.defineProperty(globalThis, "acquireVsCodeApi", { configurable: true, value: undefined })
 })
 
+test.each([
+  { input: { path: "/workspace/src/index.ts" }, path: "/workspace/src/index.ts", name: "index.ts" },
+  { input: { path: "/workspace/src/" }, path: "/workspace/src/", name: "src" },
+  { input: { filePath: "/workspace/src/index.ts" }, path: "/workspace/src/index.ts", name: "index.ts" },
+])("shows the read target in the summary with its full path on hover: %j", (fixture) => {
+  const html = renderToStaticMarkup(
+    <VSCodeProvider>
+      <LanguageProvider>
+        <SessionProvider>
+          <ToolPart part={{ id: "prt_read", type: "tool", tool: "read", status: "completed", input: fixture.input }} />
+        </SessionProvider>
+      </LanguageProvider>
+    </VSCodeProvider>,
+  )
+
+  expect(html).toContain(`<span data-slot="basic-tool-tool-subtitle" title="${fixture.path}">${fixture.name}</span>`)
+})
+
 test("hides a completed tool status while preserving its semantic state", () => {
   const html = renderToStaticMarkup(
     <VSCodeProvider>

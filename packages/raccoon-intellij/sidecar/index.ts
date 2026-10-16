@@ -38,6 +38,7 @@ function start(init: Extract<HostToSidecar, { type: "init" }>): (message: HostTo
     onAutocompleteSettingsChange: (settings) => send({ type: "autocompleteSettings", ...settings }),
     requestTerminalContext: () => terminalRequests.capture(),
     openFile: (filePath, directory, line, column) => send({ type: "openFile", filePath, directory, line, column }),
+    openExternal: (url) => send({ type: "openExternal", url }),
   })
   const autocomplete = new SidecarAutocomplete(
     new RaccoonAutocompleteService(connection, directory, platform.settings.getAutocompleteModel(), { log }),

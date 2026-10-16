@@ -11,6 +11,24 @@ const message = (parts: RaccoonMessagePart[] = []): RaccoonMessage => ({
 })
 
 describe("applyPartUpdates", () => {
+  test("preserves chronological order when a new stream part follows reasoning and text", () => {
+    const result = applyPartUpdates([message([
+      { id: "msg_1:reasoning:0", type: "reasoning", text: "first thought" },
+      { id: "msg_1:text:0", type: "text", text: "first answer" },
+      { id: "msg_1:reasoning:1", type: "reasoning", text: "second thought" },
+    ])], [{
+      sessionID: "root",
+      messageID: "msg_1",
+      part: { id: "msg_1:text:1", type: "text", text: "" },
+      delta: { type: "text-delta", textDelta: "second answer" },
+    }], "root")
+
+    expect(result[0]?.parts.map((part) => part.text)).toEqual([
+      "first thought", "first answer", "second thought", "second answer",
+    ])
+    expect(result[0]?.text).toBe("first answer\n\nsecond answer")
+  })
+
   test("appends text deltas to existing parts", () => {
     const result = applyPartUpdates([message([{ id: "prt_1", type: "text", text: "hello " }])], [
       {

@@ -818,5 +818,6 @@ export type ExtensionToWebview =
   | { type: "commandSaveResult"; requestID: string; success: boolean; error?: string }
   | { type: "commandDeleteResult"; requestID: string; success: boolean; error?: string }
   | { type: "providerConnectFinished"; providerID: string; error?: string }
+  | { type: "providerAuthorization"; providerID: string; instructions: string }
   | { type: "raccoonLoginFinished"; error?: string }
   | { type: "error"; message: string }

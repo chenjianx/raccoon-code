@@ -198,6 +198,8 @@ export class RaccoonProvider {
         this.pushPartDelta(sessionID, messageID, partID, field, delta),
       pushSubAgentPartDelta: (sessionID, messageID, partID, field, delta) =>
         this.pushSubAgentPartDelta(sessionID, messageID, partID, field, delta),
+      pushPartEnd: (sessionID, messageID, partID, field, text) =>
+        this.pushPartEnd(sessionID, messageID, partID, field, text),
       flushStreams: () => this.streams.flush(),
       clearPromptRefresh: (sessionID) => this.sessions.clearPromptRefresh(sessionID),
       recoverPendingQuestions: (sessionID) => this.sessions.recoverPendingQuestions(sessionID),
@@ -658,13 +660,13 @@ export class RaccoonProvider {
     }
   }
 
-  private appendPartDelta(messageID: string, partID: string, field: string, delta: string) {
+  private appendPartDelta(messageID: string, partID: string, field: string, delta: string, replace = false) {
     if (field !== "text" && field !== "reasoning") return
     const current = this.state.messages.find((message) => message.id === messageID)
     const message: RaccoonMessage = current ?? { id: messageID, role: "assistant", text: "", parts: [], createdAt: Date.now() }
     const part = message.parts.find((item) => item.id === partID)
     const parts: RaccoonMessage["parts"] = part
-      ? message.parts.map((item) => item.id === partID ? { ...item, text: `${item.text ?? ""}${delta}` } : item)
+      ? message.parts.map((item) => item.id === partID ? { ...item, text: replace ? delta : `${item.text ?? ""}${delta}` } : item)
       : [...message.parts, { id: partID, type: field, text: delta }]
     this.state = {
       ...this.state,
@@ -701,6 +703,12 @@ export class RaccoonProvider {
         textDelta: delta,
       },
     })
+  }
+
+  private pushPartEnd(sessionID: string, messageID: string, partID: string, field: string, text: string) {
+    if (field !== "text" && field !== "reasoning") return
+    if (sessionID === this.state.activeSessionID) this.appendPartDelta(messageID, partID, field, text, true)
+    this.streams.push({ sessionID, messageID, part: { id: partID, type: field, text } })
   }
 
   private pushSubAgentPartDelta(sessionID: string, messageID: string, partID: string, field: string, delta: string) {

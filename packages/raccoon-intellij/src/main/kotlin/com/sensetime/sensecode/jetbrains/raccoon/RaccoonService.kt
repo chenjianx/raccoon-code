@@ -3,6 +3,7 @@ package com.sensetime.sensecode.jetbrains.raccoon
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
@@ -281,6 +282,13 @@ class RaccoonService(private val project: Project) : Disposable {
                             addProperty("output", it.output)
                         }
                     }))
+                }
+            }
+            "openExternal" -> {
+                val url = obj.get("url")?.asString ?: return
+                ApplicationManager.getApplication().invokeLater {
+                    if (disposed || project.isDisposed) return@invokeLater
+                    BrowserUtil.browse(url, project)
                 }
             }
             "openFile" -> {

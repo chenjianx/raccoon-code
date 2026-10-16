@@ -15,6 +15,7 @@ type EventHandlerDeps = {
   postSubAgentEvent: (sessionID: string, message: ExtensionToWebview) => void
   pushPartDelta: (sessionID: string, messageID: string, partID: string, field: string, delta: string) => void
   pushSubAgentPartDelta: (sessionID: string, messageID: string, partID: string, field: string, delta: string) => void
+  pushPartEnd: (sessionID: string, messageID: string, partID: string, field: string, text: string) => void
   flushStreams: () => void
   clearPromptRefresh: (sessionID: string) => void
   recoverPendingQuestions: (sessionID: string) => Promise<void>
@@ -89,9 +90,22 @@ export class RaccoonEventHandler {
     const active = sessionID === this.deps.getState().activeSessionID
     if (!active && !this.deps.isTrackedSubAgent(sessionID)) return
 
+    if (event.type === "session.text.ended" || event.type === "session.reasoning.ended") {
+      const field = event.type === "session.text.ended" ? "text" : "reasoning"
+      this.deps.flushStreams()
+      this.deps.pushPartEnd(sessionID, event.data.assistantMessageID, `${event.data.assistantMessageID}:${field}:${event.data.ordinal}`, field, event.data.text)
+      if (active) {
+        this.deps.post()
+        this.deps.scheduleEventRefresh()
+        return
+      }
+      this.deps.flushStreams()
+      this.deps.scheduleSubAgentRefresh(sessionID)
+      return
+    }
     if (event.type === "session.text.delta" || event.type === "session.reasoning.delta") {
       const field = event.type === "session.text.delta" ? "text" : "reasoning"
-      const partID = `${event.data.assistantMessageID}:${event.data.ordinal}`
+      const partID = `${event.data.assistantMessageID}:${field}:${event.data.ordinal}`
       if (active) this.deps.pushPartDelta(sessionID, event.data.assistantMessageID, partID, field, event.data.delta)
       else this.deps.pushSubAgentPartDelta(sessionID, event.data.assistantMessageID, partID, field, event.data.delta)
       this.setBusy(sessionID, true)

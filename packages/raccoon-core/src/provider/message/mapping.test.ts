@@ -3,12 +3,25 @@ import type { ModelInfo, ProviderInfo, SessionInfo, SessionMessageInfo } from "@
 import { mapMessage, mapProviderModels, mapSession, mapSubSession } from "./mapping"
 
 describe("mapProviderModels", () => {
+  test("keeps selectable IDs distinct from upstream IDs and honors disabled aliases", () => {
+    const provider = { id: "custom", name: "Custom", activation: "enabled" } as ProviderInfo
+    const models = [
+      { id: "alias", modelID: "upstream", providerID: "custom", name: "Alias", enabled: true, variants: [] },
+      { id: "other-alias", modelID: "upstream", providerID: "custom", name: "Other alias", enabled: true, variants: [] },
+    ] as ModelInfo[]
+
+    expect(mapProviderModels(models, [provider], [], new Set(["custom/alias"]))).toMatchObject([
+      { modelID: "alias", enabled: false },
+      { modelID: "other-alias", enabled: true },
+    ])
+  })
+
   test("filters autocomplete-only raccoon models from selectable models", () => {
     const provider = { id: "raccoon", name: "Raccoon", activation: "auto", integrationID: "raccoon" } as ProviderInfo
     const models = [
       { providerID: "raccoon", modelID: "raccoon-pro-completion", name: "Raccoon Complete Pro" },
       { providerID: "raccoon", modelID: "raccoon-completion", name: "Raccoon Complete" },
-      { providerID: "raccoon", modelID: "raccoon-chat", name: "Raccoon Chat", enabled: true, variants: [{ id: "low" }, { id: "high" }] },
+      { id: "raccoon-chat", providerID: "raccoon", modelID: "raccoon-chat", name: "Raccoon Chat", enabled: true, variants: [{ id: "low" }, { id: "high" }] },
     ] as ModelInfo[]
 
     const result = mapProviderModels(models, [provider], [{ id: "raccoon", connections: [{ type: "env", name: "RACCOON_TOKEN" }] } as never], new Set())
@@ -19,6 +32,27 @@ describe("mapProviderModels", () => {
 })
 
 describe("mapMessage", () => {
+  test("uses per-type stream ordinals for text and reasoning IDs", () => {
+    const mapped = mapMessage({
+      id: "msg_1",
+      type: "assistant",
+      time: { created: 1 },
+      agent: "build",
+      model: { providerID: "raccoon", id: "raccoon-chat" },
+      content: [
+        { type: "reasoning", text: "thinking" },
+        { type: "tool", id: "call_1", name: "read", time: { created: 1 }, state: { status: "streaming", input: "" } },
+        { type: "text", text: "use bun" },
+        { type: "reasoning", text: "checking" },
+        { type: "text", text: "or npm" },
+      ],
+    })[0]
+
+    expect(mapped?.parts.map((part) => part.id)).toEqual([
+      "msg_1:reasoning:0", "call_1", "msg_1:text:0", "msg_1:reasoning:1", "msg_1:text:1",
+    ])
+  })
+
   test("maps v2 assistant content and tool result", () => {
     const mapped = mapMessage({
       id: "msg_1",

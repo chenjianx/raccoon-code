@@ -52,19 +52,26 @@ export class ModelStateStore {
 
   constructor(
     private readonly directory: () => string,
-    private readonly stateDirectory = path.join(process.env.XDG_STATE_HOME || path.join(os.homedir(), ".local", "state"), "raccoon"),
+    private readonly stateDirectory = path.join(
+      process.env.XDG_STATE_HOME || path.join(os.homedir(), ".local", "state"),
+      "raccoon",
+    ),
+    private readonly legacyStateDirectory = path.join(
+      process.env.XDG_STATE_HOME || path.join(os.homedir(), ".local", "state"),
+      "opencode",
+    ),
   ) {}
 
   async read(client: OpenCodeClient) {
     const file = await this.file(client)
     if (!file) return {}
-    try {
-      const value = JSON.parse(await fs.readFile(file, "utf-8"))
-      if (!value || typeof value !== "object" || Array.isArray(value)) return {}
-      return value as Record<string, unknown>
-    } catch {
-      return {}
-    }
+    const current = await readModelState(file)
+    if (current) return current
+    const legacy = await readModelState(path.join(this.legacyStateDirectory, "model.json"))
+    if (!legacy) return {}
+    await fs.mkdir(path.dirname(file), { recursive: true })
+    await fs.writeFile(file, JSON.stringify(legacy, null, 2))
+    return legacy
   }
 
   async load(client: OpenCodeClient, fallback: ModelState): Promise<ModelState> {
@@ -93,5 +100,15 @@ export class ModelStateStore {
     if (this.path) return this.path
     this.path = path.join(this.stateDirectory, "model.json")
     return this.path
+  }
+}
+
+async function readModelState(file: string) {
+  try {
+    const value = JSON.parse(await fs.readFile(file, "utf-8"))
+    if (!value || typeof value !== "object" || Array.isArray(value)) return
+    return value as Record<string, unknown>
+  } catch {
+    return
   }
 }

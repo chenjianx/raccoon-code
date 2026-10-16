@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { diffFiles } from "./message-list-diff"
-import { sessionUsage } from "./message-list-format"
+import { inputLines, sessionUsage } from "./message-list-format"
 import { turnPartGroups, visibleParts } from "./message-list-model"
 import { parseFileReference } from "../../ui/markdown-lite"
 import type { RaccoonMessage, RaccoonMessagePart } from "../../../protocol"
@@ -14,7 +14,39 @@ const message = (parts: RaccoonMessagePart[], id = "msg_1") =>
     createdAt: 1,
   }) satisfies RaccoonMessage
 
+test("preserves complete multiline tool parameters beyond the summary preview length", () => {
+  const command = `  cd /workspace/${"long-directory/".repeat(20)}\nfind . -name '*.rs'  `
+
+  expect(inputLines({ id: "prt_shell", type: "tool", tool: "shell", input: { command } })).toEqual([
+    { key: "command", value: command },
+  ])
+})
+
 describe("visibleParts", () => {
+  test.each(["task", "subagent", "read", "shell"])("hides %s while its input is streaming", (tool) => {
+    const part = { id: "prt_tool", type: "tool", tool, status: "streaming", input: {} } satisfies RaccoonMessagePart
+
+    expect(visibleParts(message([part]))).toEqual([])
+  })
+
+  test("shows a task once its input is ready", () => {
+    const part = {
+      id: "prt_task",
+      type: "tool",
+      tool: "subagent",
+      status: "running",
+      input: { agent: "explore", description: "Compare projects" },
+    } satisfies RaccoonMessagePart
+
+    expect(visibleParts(message([part]))).toEqual([part])
+  })
+
+  test.each(["running", "completed", "error"])("keeps %s tools visible without input parameters", (status) => {
+    const part = { id: "prt_tool", type: "tool", tool: "custom", status, input: {} } satisfies RaccoonMessagePart
+
+    expect(visibleParts(message([part]))).toEqual([part])
+  })
+
   test("hides patch metadata", () => {
     expect(visibleParts(message([{ id: "prt_1", type: "patch", title: "patch" }]))).toEqual([])
   })

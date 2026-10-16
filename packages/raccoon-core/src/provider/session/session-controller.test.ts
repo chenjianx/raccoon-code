@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test"
-import type { OpenCodeClient, SessionInfo, SessionMessageInfo } from "@opencode/client/promise"
-import type { ExtensionToWebview, RaccoonState } from "@opencode-ai/raccoon-webview"
+import type { OpenCodeClient, PermissionRequest, SessionInfo, SessionMessageInfo } from "@opencode/client/promise"
+import type { ExtensionToWebview, RaccoonMessage, RaccoonState } from "@opencode-ai/raccoon-webview"
 import { RaccoonSessionController } from "./session-controller"
+import { applyPartUpdates } from "../../../../raccoon-webview/src/context/session-parts"
 
 type Deferred<T> = { promise: Promise<T>; resolve: (value: T) => void; reject: (error: unknown) => void }
 function defer<T>(): Deferred<T> {
@@ -39,7 +40,8 @@ function userMessage(_sessionID: string, id: string, text: string, created = 1):
 // Build a controller whose message.list resolves through a queue of deferreds
 // so tests can force stale/fresh response ordering. get/active/form resolve
 // synchronously; only message.list is deferred (Promise.all blocks on it).
-function makeController() {
+function makeController(permissions: PermissionRequest[] = []) {
+  const posts: ExtensionToWebview[] = []
   const messagesQueue: {
     sessionID: string
     cursor?: string
@@ -59,7 +61,8 @@ function makeController() {
       },
     },
     permission: {
-      list: async () => [],
+      list: async ({ sessionID }: { sessionID: string }) => permissions.filter((permission) => permission.sessionID === sessionID),
+      request: { list: async () => ({ data: permissions }) },
       reply: async () => undefined,
     },
   } as unknown as OpenCodeClient
@@ -75,7 +78,7 @@ function makeController() {
     post: () => {},
     log: () => {},
     streams: { drop: () => {} },
-    webviewHost: { post: () => {} },
+    webviewHost: { post: (_source: string, message: ExtensionToWebview) => posts.push(message) },
     loadModels: async () => {},
   } as never)
 
@@ -86,18 +89,24 @@ function makeController() {
       cursor: cursor ? { next: cursor } : {},
     })
   }
-  return { controller, resolveMessages, getState: () => state, messagesQueue }
+  return { controller, resolveMessages, getState: () => state, setState: (next: RaccoonState) => { state = next }, messagesQueue, posts }
 }
 
 function makeSubAgentController(
   status: Record<string, { type: string }> = {},
   state = { sessions: [], messages: [] } as RaccoonState,
+  permissions: PermissionRequest[] = [],
 ) {
   const messagesQueue: { sessionID: string; deferred: Deferred<{ data: SessionMessageInfo[]; cursor: {} }> }[] = []
   const posts: ExtensionToWebview[] = []
   const client = {
     session: {
       active: async () => status,
+      form: { list: async () => [] },
+    },
+    permission: {
+      list: async ({ sessionID }: { sessionID: string }) => permissions.filter((permission) => permission.sessionID === sessionID),
+      request: { list: async () => ({ data: permissions }) },
     },
     message: {
       list: ({ sessionID }: { sessionID: string }) => {
@@ -172,7 +181,110 @@ function makeSendController(sessionStatus: "idle" | "busy" = "idle") {
   }
 }
 
+function subAgentMessages(posts: ExtensionToWebview[], sessionID: string) {
+  return posts.reduce<RaccoonMessage[]>((messages, post) => {
+    if (post.type === "showSubAgent" && post.view.sessionID === sessionID) return post.view.messages
+    if (post.type !== "partUpdated" && post.type !== "partsUpdated") return messages
+    return applyPartUpdates(messages, post.type === "partUpdated" ? [post] : post.updates, sessionID)
+  }, [])
+}
+
 describe("RaccoonSessionController loadMessages generation", () => {
+  test.each([true, false])("keeps live text during the initial attach (snapshot includes assistant: %s)", async (included) => {
+    const { controller, resolveMessages, getState, setState } = makeController()
+    setState({ ...getState(), activeSessionID: "root" })
+    const loading = controller.loadMessages("root")
+    await tick()
+    setState({ ...getState(), messages: [{ id: "assistant", role: "assistant", createdAt: 1, text: "hello",
+      parts: [{ id: "assistant:text:0", type: "text", text: "hello" }],
+    }] })
+    resolveMessages(0, included ? [{ id: "assistant", type: "assistant", agent: "build", time: { created: 1 },
+      model: { providerID: "raccoon", id: "raccoon-chat" }, content: [{ type: "text", text: "" }],
+    }] : [])
+    await loading
+    expect(getState().messages[0]?.text).toBe("hello")
+    controller.dispose()
+  })
+
+  test.each(["text", "reasoning"] as const)("uses the ended %s snapshot while tools keep the assistant step open", async (type) => {
+    const { controller, resolveMessages, getState, setState } = makeController()
+    setState({
+      ...getState(), activeSessionID: "root", messageHistorySessionID: "root", busy: true,
+      messages: [{ id: "assistant", role: "assistant", createdAt: 1, text: type === "text" ? "Hello world" : "",
+        parts: [{ id: `assistant:${type}:0`, type, text: "Hello world" }],
+      }],
+    })
+    const loading = controller.loadMessages("root")
+    await tick()
+    resolveMessages(0, [{ id: "assistant", type: "assistant", agent: "build", time: { created: 1 },
+      model: { providerID: "raccoon", id: "raccoon-chat" }, content: [
+        { type, text: "Hello" },
+        { type: "tool", id: "call_1", name: "shell", time: { created: 1 }, state: { status: "running", input: {}, metadata: {} } },
+      ],
+    }])
+    await loading
+    expect(getState().messages[0]?.parts[0]?.text).toBe("Hello")
+    controller.dispose()
+  })
+
+  test.each([true, false])("keeps streamed text across an unfinished snapshot (text placeholder: %s)", async (placeholder) => {
+    const { controller, resolveMessages, getState, setState } = makeController()
+    setState({
+      ...getState(), activeSessionID: "root", messageHistorySessionID: "root", busy: true,
+      messages: [{ id: "assistant", role: "assistant", createdAt: 1, text: "use bun", parts: [
+        { id: "assistant:reasoning:0", type: "reasoning", text: "thinking" },
+        { id: "assistant:text:0", type: "text", text: "use bun" },
+      ] }],
+    })
+    const loading = controller.loadMessages("root")
+    await tick()
+    // The durable projection contains empty text until text.ended. More deltas
+    // can arrive while message.list is in flight.
+    setState({ ...getState(), messages: [{ ...getState().messages[0], text: "use bun or npm", parts: [
+      { id: "assistant:reasoning:0", type: "reasoning", text: "thinking" },
+      { id: "assistant:text:0", type: "text", text: "use bun or npm" },
+    ] }] })
+    resolveMessages(0, [{ id: "assistant", type: "assistant", time: { created: 1 }, agent: "build",
+      model: { providerID: "raccoon", id: "raccoon-chat" }, content: placeholder
+        ? [{ type: "reasoning", text: "thinking" }, { type: "text", text: "" }]
+        : [{ type: "reasoning", text: "thinking" }],
+    }])
+    await loading
+    expect(getState().messages[0]?.text).toBe("use bun or npm")
+    expect(getState().messages[0]?.parts.map((part) => part.text)).toEqual(["thinking", "use bun or npm"])
+
+    const completed = controller.loadMessages("root")
+    await tick()
+    resolveMessages(1, [{ id: "assistant", type: "assistant", time: { created: 1, completed: 2 }, agent: "build",
+      model: { providerID: "raccoon", id: "raccoon-chat" }, content: [{ type: "text", text: "use bun" }],
+    }])
+    await completed
+    expect(getState().messages[0]?.text).toBe("use bun")
+    expect(getState().messages[0]?.parts).toHaveLength(1)
+    controller.dispose()
+  })
+
+  test("recovers pending permissions for the loaded session tree without unrelated sessions", async () => {
+    const { controller, resolveMessages, posts } = makeController(
+      ["root", "child", "grandchild", "unrelated"].map((sessionID) => ({
+        id: `perm-${sessionID}`, sessionID, action: "external_directory", resources: ["/reference/*"],
+      })),
+    )
+    const loading = controller.loadMessages("root")
+    await tick()
+    resolveMessages(0, [{ id: "assistant", type: "assistant", agent: "build", model: { providerID: "raccoon", id: "raccoon-chat" }, time: { created: 2 }, content: [
+      { id: "call_child", type: "tool", name: "subagent", time: { created: 2 }, state: { status: "running", input: {}, metadata: { sessionID: "child" } } },
+    ] }])
+    await tick()
+    resolveMessages(1, [{ id: "child_assistant", type: "assistant", agent: "explore", model: { providerID: "raccoon", id: "raccoon-chat" }, time: { created: 3 }, content: [
+      { id: "call_grandchild", type: "tool", name: "subagent", time: { created: 3 }, state: { status: "running", input: {}, metadata: { sessionID: "grandchild" } } },
+    ] }])
+    await loading
+    expect(posts.filter((post) => post.type === "permissionRequest").map((post) => post.permission.id))
+      .toEqual(["perm-root", "perm-child", "perm-grandchild"])
+    controller.dispose()
+  })
+
   test("loads native V2 subagent progress and tracks its child session", async () => {
     const { controller, resolveMessages, getState, messagesQueue } = makeController()
     const loading = controller.loadMessages("root")
@@ -298,6 +410,92 @@ describe("RaccoonSessionController loadMessages generation", () => {
 })
 
 describe("RaccoonSessionController subagent navigation", () => {
+  test.each([true, false])("does not replay deltas already present in a child snapshot (step completed: %s)", async (completed) => {
+    const { controller, posts, messagesQueue } = makeSubAgentController({ A: { type: "busy" } })
+    const delta: ExtensionToWebview = {
+      type: "partUpdated", sessionID: "A", messageID: "assistant",
+      part: { id: "assistant:text:0", type: "text", text: "" }, delta: { type: "text-delta", textDelta: "hello" },
+    }
+    controller.postSubAgentEvent("A", delta)
+    const open = controller.openSubAgent("A", "A")
+    await tick()
+    messagesQueue[0].deferred.resolve({ data: [{ id: "assistant", type: "assistant", agent: "build",
+      model: { providerID: "raccoon", id: "raccoon-chat" }, time: { created: 1, ...(completed ? { completed: 2 } : {}) },
+      content: [{ type: "reasoning", text: "thought" }, { type: "text", text: "hello" }],
+    }], cursor: {} })
+    await open
+    const rendered = subAgentMessages(posts, "A")
+    expect(rendered[0]?.text).toBe("hello")
+    expect(rendered[0]?.parts.map((part) => part.text)).toEqual(["thought", "hello"])
+    controller.dispose()
+  })
+
+  test("replays only unprojected parts of a batched child update", async () => {
+    const { controller, posts, messagesQueue } = makeSubAgentController({ A: { type: "busy" } })
+    controller.postSubAgentEvent("A", { type: "partsUpdated", updates: [
+      { sessionID: "A", messageID: "assistant", part: { id: "assistant:reasoning:0", type: "reasoning", text: "" }, delta: { type: "text-delta", textDelta: "thought" } },
+      { sessionID: "A", messageID: "assistant", part: { id: "assistant:text:0", type: "text", text: "" }, delta: { type: "text-delta", textDelta: "hello" } },
+    ] })
+    const open = controller.openSubAgent("A", "A")
+    await tick()
+    messagesQueue[0].deferred.resolve({ data: [{ id: "assistant", type: "assistant", agent: "build",
+      model: { providerID: "raccoon", id: "raccoon-chat" }, time: { created: 1 },
+      content: [{ type: "reasoning", text: "thought" }, { type: "text", text: "" }],
+    }], cursor: {} })
+    await open
+    expect(subAgentMessages(posts, "A")[0]?.parts.map((part) => part.text)).toEqual(["thought", "hello"])
+    controller.dispose()
+  })
+
+  test("keeps child deltas exactly once across a failed refresh and retry", async () => {
+    const { controller, posts, messagesQueue, rejectMessages } = makeSubAgentController({ A: { type: "busy" } })
+    const snapshot: SessionMessageInfo = { id: "assistant", type: "assistant", agent: "build",
+      model: { providerID: "raccoon", id: "raccoon-chat" }, time: { created: 1 }, content: [{ type: "text", text: "" }],
+    }
+    controller.postSubAgentEvent("A", { type: "partUpdated", sessionID: "A", messageID: "assistant",
+      part: { id: "assistant:text:0", type: "text", text: "" }, delta: { type: "text-delta", textDelta: "hello" },
+    })
+    const open = controller.openSubAgent("A", "A")
+    await tick()
+    messagesQueue[0].deferred.resolve({ data: [snapshot], cursor: {} })
+    await open
+    expect(subAgentMessages(posts, "A")[0]?.text).toBe("hello")
+
+    controller.scheduleSubAgentRefresh("A")
+    await refreshTick()
+    controller.postSubAgentEvent("A", { type: "partUpdated", sessionID: "A", messageID: "assistant",
+      part: { id: "assistant:text:0", type: "text", text: "" }, delta: { type: "text-delta", textDelta: " world" },
+    })
+    rejectMessages(1, new Error("refresh failed"))
+    await tick()
+    expect(subAgentMessages(posts, "A")[0]?.text).toBe("hello world")
+
+    controller.scheduleSubAgentRefresh("A")
+    await refreshTick()
+    messagesQueue[2].deferred.resolve({ data: [{ ...snapshot, content: [{ type: "text", text: "hello world" }] }], cursor: {} })
+    await tick()
+    expect(subAgentMessages(posts, "A")[0]?.text).toBe("hello world")
+    controller.dispose()
+  })
+
+  test("recovers a pending permission when opening a subagent after its event was missed", async () => {
+    const { controller, posts, resolveMessages } = makeSubAgentController({}, undefined, [
+      { id: "perm-child", sessionID: "child", action: "external_directory", resources: ["/reference/*"] },
+      { id: "perm-other", sessionID: "other", action: "external_directory", resources: ["/other/*"] },
+    ])
+    const open = controller.openSubAgent("child", "Inspect reference")
+    await tick()
+    resolveMessages(0, "child", "msg-child", "Inspect")
+    await open
+    expect(posts.filter((post) => post.type === "permissionRequest")).toEqual([
+      { type: "permissionRequest", permission: {
+        id: "perm-child", sessionID: "child", permission: "external_directory", patterns: ["/reference/*"],
+        metadata: {}, always: [], tool: undefined,
+      } },
+    ])
+    controller.dispose()
+  })
+
   test("tracks only descendants of the active session", () => {
     const { controller } = makeSubAgentController({}, {
       activeSessionID: "root-a",

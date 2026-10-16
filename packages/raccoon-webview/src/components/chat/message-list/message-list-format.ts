@@ -17,12 +17,6 @@ export function shortValue(value: unknown) {
   return JSON.stringify(value)
 }
 
-export function preview(value: string, length = 420) {
-  const text = value.trim()
-  if (text.length <= length) return text
-  return `${text.slice(0, length)}...`
-}
-
 export function stripAnsi(value: string) {
   return value.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "")
 }
@@ -38,7 +32,7 @@ export function inputLines(part: RaccoonMessagePart, omitDiffInputs = false) {
     .map(([key, value]) => {
       const text = shortValue(value)
       if (!text) return
-      return { key, value: isPathInputKey(key) ? text : preview(text, 180) }
+      return { key, value: text }
     })
     .filter((item): item is { key: string; value: string } => !!item)
 }

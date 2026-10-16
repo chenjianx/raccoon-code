@@ -41,6 +41,7 @@ export class SidecarPlatform implements HostPlatform {
     onAutocompleteSettingsChange: (settings: { enabled: boolean; model: string }) => void
     requestTerminalContext?: () => Promise<{ name: string; output: string } | undefined>
     openFile?: (filePath: string, directory: string, line?: number, column?: number) => void
+    openExternal?: (url: string) => void
   }) {
     this.autocompleteEnabled = opts.autocompleteEnabled
     this.autocompleteModel = getAutocompleteModel(opts.autocompleteModel).id
@@ -87,7 +88,7 @@ export class SidecarPlatform implements HostPlatform {
       revealChat: async () => {},
       openFile: (filePath, directory, line, column) => opts.openFile?.(filePath, directory, line, column),
       openPath: async () => {},
-      openExternal: async (url: string) => opts.log(`openExternal (unhandled in MVP): ${url}`),
+      openExternal: async (url: string) => { opts.openExternal?.(url) },
       promptInput: async () => undefined,
       saveFile: async () => false,
       showInfo: (message: string) => opts.log(message),

@@ -1000,7 +1000,7 @@
   }
 
   .tool-kv {
-    @apply grid grid-cols-[82px_1fr] gap-2 text-[12px];
+    @apply grid min-w-0 grid-cols-[82px_minmax(0,1fr)] gap-2 text-[12px];
   }
 
   .tool-kv span {
@@ -1008,11 +1008,12 @@
   }
 
   .tool-kv code {
-    @apply overflow-hidden text-ellipsis whitespace-nowrap rounded-[4px] bg-[var(--color-button)] px-1 py-0.5 font-mono text-[11px];
+    @apply max-h-[240px] min-w-0 overflow-auto whitespace-pre-wrap rounded-[4px] bg-[var(--color-button)] px-1 py-0.5 font-mono text-[11px];
+    overflow-wrap: anywhere;
   }
 
   .tool-kv .tool-path-value {
-    @apply min-w-0 overflow-visible text-clip whitespace-pre-wrap break-all text-[var(--color-foreground)] select-text;
+    @apply max-h-none min-w-0 overflow-visible text-clip whitespace-pre-wrap break-all text-[var(--color-foreground)] select-text;
   }
 
   .tool-diff-panel {
@@ -1147,7 +1148,10 @@
   .tool-md-space {
     @apply h-2;
   }
+}
 
+/* Typography's prose rules are utilities; overrides must share that layer. */
+@layer utilities {
   .prose[data-component="markdown-lite"] {
     @apply min-w-0 bg-transparent text-[12px] leading-[17px] text-[var(--color-foreground)];
     --tw-prose-body: var(--color-foreground) !important;
@@ -1252,6 +1256,12 @@
     @apply rounded-[4px] bg-[var(--color-button)] px-1 py-0.5 font-mono text-[11px] leading-[16px] break-all;
   }
 
+  .chat-view .prose[data-component="markdown-lite"] {
+    @apply text-[13px] leading-[19px];
+  }
+}
+
+@layer components {
   [data-component="markdown-table"] {
     @apply min-w-0 overflow-auto;
   }
@@ -1419,10 +1429,6 @@
 
   .chat-view .assistant-inline-questions {
     @apply flex min-w-0 flex-col gap-2;
-  }
-
-  .chat-view .prose[data-component="markdown-lite"] {
-    @apply text-[13px] leading-[19px];
   }
 
   .chat-view .tool-activity {

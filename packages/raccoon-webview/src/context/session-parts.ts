@@ -26,7 +26,7 @@ function applyPartUpdate(message: RaccoonMessage, update: RaccoonPartUpdate) {
         if (part.type !== "text" && part.type !== "reasoning") return update.part
         return { ...part, text: `${part.text ?? ""}${update.delta.textDelta}` }
       })
-    : [...message.parts, textPart(update)].sort((a, b) => a.id.localeCompare(b.id))
+    : [...message.parts, textPart(update)]
   return {
     ...message,
     parts,

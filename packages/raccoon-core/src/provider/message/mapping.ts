@@ -67,9 +67,10 @@ export function mapMessage(message: SessionMessageInfo): RaccoonMessage[] {
     return [{ ...base, role: "user", parts, text: message.text }]
   }
   if (message.type === "assistant") {
-    const parts: RaccoonMessagePart[] = message.content.map((item, index) => {
+    const ordinals = { text: 0, reasoning: 0 }
+    const parts: RaccoonMessagePart[] = message.content.map((item) => {
       if (item.type === "text" || item.type === "reasoning") {
-        return { id: `${message.id}:${index}`, type: item.type, text: item.text }
+        return { id: `${message.id}:${item.type}:${ordinals[item.type]++}`, type: item.type, text: item.text }
       }
       const input = item.state.status === "streaming" ? {} : item.state.input
       const content = "content" in item.state ? item.state.content : undefined
@@ -148,10 +149,10 @@ export function mapProviderModels(models: ModelInfo[], providers: ProviderInfo[]
     .map((model) => ({
       providerID: model.providerID,
       providerName: byID.get(model.providerID)!.name,
-      modelID: model.modelID,
+      modelID: model.id,
       modelName: model.name.replace("(latest)", "").trim(),
       connected: providerConnected(byID.get(model.providerID)!, integrations),
-      enabled: model.enabled && !disabledModels.has(modelKey({ providerID: model.providerID, modelID: model.modelID })),
+      enabled: model.enabled && !disabledModels.has(modelKey({ providerID: model.providerID, modelID: model.id })),
       contextLimit: model.limit?.context && model.limit.context > 0 ? model.limit.context : undefined,
       variants: model.variants.map((variant) => variant.id),
     }))

@@ -14,7 +14,7 @@ import { contextMentionAttachments } from "../editor/context-mentions.js"
 import { exportMarkdown } from "../message/export-markdown.js"
 import { ascendingID } from "../message/ids.js"
 import { contextInspectorSnapshot } from "../message/context-inspector.js"
-import { mapMessage, mapSession, mapSubSession, responseText, sortMessages, sortSessions } from "../message/mapping.js"
+import { mapMessage, mapSession, mapSubSession, messageText, responseText, sortMessages, sortSessions } from "../message/mapping.js"
 import type { ModelSelection } from "./model-state.js"
 import type { RaccoonProviderConfig } from "../config/provider-config.js"
 import type { RaccoonStreamScheduler } from "../stream/stream-scheduler.js"
@@ -50,6 +50,7 @@ type SubAgentLoad = {
   sessionID: string
   generation: number
   events: ExtensionToWebview[]
+  replayed: number
 }
 
 export class RaccoonSessionController {
@@ -283,10 +284,30 @@ export class RaccoonSessionController {
     // Re-check after loadSubSessions' await: a newer load may have started meanwhile.
     if (generation !== this.loadGeneration) return
     const current = this.deps.getState()
-    const currentHistory = current.activeSessionID === sessionID && current.messageHistorySessionID === sessionID
+    const currentSession = current.activeSessionID === sessionID
+    const currentHistory = currentSession && current.messageHistorySessionID === sessionID
     const finalMessages = sortMessages([
-      ...(currentHistory ? current.messages.filter((message) => !merged.some((item) => item.id === message.id)) : []),
-      ...merged,
+      ...(currentSession ? current.messages.filter((message) =>
+        (currentHistory || message.role === "assistant") && !merged.some((item) => item.id === message.id),
+      ) : []),
+      ...merged.map((message) => {
+        if (!currentSession || message.role !== "assistant" || message.completedAt !== undefined) return message
+        const live = current.messages.find((item) => item.id === message.id)
+        if (!live) return message
+        // Nonempty snapshot text is an ended fragment's authoritative value.
+        // Empty placeholders still need deltas received during this request.
+        const parts = [
+          ...message.parts.map((part) => {
+            if ((part.type !== "text" && part.type !== "reasoning") || part.text) return part
+            const streamed = live.parts.find((item) => item.id === part.id)
+            return streamed ? { ...part, text: streamed.text } : part
+          }),
+          ...live.parts.filter((part) =>
+            (part.type === "text" || part.type === "reasoning") && !message.parts.some((item) => item.id === part.id),
+          ),
+        ]
+        return { ...message, parts, text: messageText(parts) }
+      }),
     ])
     this.deps.setState({
       ...current,
@@ -473,10 +494,14 @@ export class RaccoonSessionController {
       const client = await this.deps.client()
       const [forms, permissions] = await Promise.all([
         client.session.form.list({ sessionID }),
-        client.permission.list({ sessionID }),
+        client.permission.request.list({ location: { directory: this.deps.directory() } }),
       ])
       forms.forEach((form) => this.postForm(form))
-      permissions.forEach((permission) => this.deps.webviewHost.post("chat", {
+      // A child can be waiting for approval after its live event was missed.
+      permissions.data.filter((permission) =>
+        permission.sessionID === sessionID ||
+        (sessionID === this.deps.getState().activeSessionID && this.isTrackedSubAgent(permission.sessionID)),
+      ).forEach((permission) => this.deps.webviewHost.post("chat", {
         type: "permissionRequest",
         permission: {
           id: permission.id,
@@ -760,6 +785,7 @@ export class RaccoonSessionController {
     try {
       const view = await this.fetchSubAgentView(sessionID)
       this.completeSubAgentLoad(load, { sessionID, title, ...view, loading: false })
+      if (this.isCurrentSubAgent(sessionID, generation)) await this.recoverPendingQuestions(sessionID)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       this.deps.log(`open sub-agent failed (${sessionID}): ${message}`)
@@ -877,7 +903,8 @@ export class RaccoonSessionController {
   }
 
   private beginSubAgentLoad(sessionID: string, generation: number) {
-    const load = { sessionID, generation, events: [...(this.subAgentEvents.get(sessionID) ?? [])] } satisfies SubAgentLoad
+    const events = [...(this.subAgentEvents.get(sessionID) ?? [])]
+    const load = { sessionID, generation, events, replayed: events.length } satisfies SubAgentLoad
     this.subAgentLoad = load
     return load
   }
@@ -886,7 +913,21 @@ export class RaccoonSessionController {
     if (!this.isCurrentSubAgent(load.sessionID, load.generation) || this.subAgentLoad !== load) return
     this.subAgentLoad = undefined
     this.deps.webviewHost.post("chat", { type: "showSubAgent", view } satisfies ExtensionToWebview)
-    load.events.forEach((message) => this.deps.webviewHost.post("chat", message))
+    load.events.forEach((message) => {
+      if (message.type !== "partUpdated" && message.type !== "partsUpdated") {
+        this.deps.webviewHost.post("chat", message)
+        return
+      }
+      const updates = (message.type === "partUpdated" ? [message] : message.updates).filter((update) => {
+        if (update.part.type !== "text" && update.part.type !== "reasoning") return true
+        const snapshot = view.messages.find((item) => item.id === update.messageID)
+        if (snapshot?.completedAt !== undefined) return false
+        // Snapshots contain no partial text: nonempty fragments have already ended.
+        return !snapshot?.parts.find((part) => part.id === update.part.id)?.text
+      })
+      if (updates.length === 0) return
+      this.deps.webviewHost.post("chat", message.type === "partUpdated" ? message : { ...message, updates })
+    })
     const latestBusy = load.events.filter((message) => message.type === "subAgentBusyChanged").at(-1)
     if ((latestBusy?.busy ?? view.busy) === false) this.subAgentEvents.delete(load.sessionID)
     this.reschedulePendingSubAgentRefresh(load.sessionID)
@@ -895,7 +936,8 @@ export class RaccoonSessionController {
   private failSubAgentLoad(load: SubAgentLoad) {
     if (!this.isCurrentSubAgent(load.sessionID, load.generation) || this.subAgentLoad !== load) return
     this.subAgentLoad = undefined
-    load.events.forEach((message) => this.deps.webviewHost.post("chat", message))
+    // Without a replacement snapshot, the old events are already visible.
+    load.events.slice(load.replayed).forEach((message) => this.deps.webviewHost.post("chat", message))
     this.reschedulePendingSubAgentRefresh(load.sessionID)
   }
 

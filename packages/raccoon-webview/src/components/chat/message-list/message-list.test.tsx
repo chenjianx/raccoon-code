@@ -10,6 +10,46 @@ afterEach(() => {
   Object.defineProperty(globalThis, "acquireVsCodeApi", { configurable: true, value: undefined })
 })
 
+test.each(["streaming", "running"])("renders task rows only when their input is ready: %s", (status) => {
+  const messages: RaccoonMessage[] = [{
+    id: "msg_assistant",
+    role: "assistant",
+    text: "Compare projects",
+    parts: [
+      { id: "prt_text", type: "text", text: "Compare projects" },
+      ...["Inspect tools", "Inspect sessions", "Inspect UI"].map((description, index) => ({
+        id: `prt_task_${index}`,
+        type: "tool" as const,
+        tool: "subagent",
+        status,
+        input: status === "streaming" ? {} : { agent: "explore", description },
+      })),
+    ],
+    createdAt: 1,
+  }]
+  const html = renderToStaticMarkup(
+    <VSCodeProvider>
+      <LanguageProvider>
+        <SessionProvider>
+          <MessageList messages={messages} busy />
+        </SessionProvider>
+      </LanguageProvider>
+    </VSCodeProvider>,
+  )
+
+  expect(html).toContain("Compare projects")
+  expect(html).toContain("小浣熊正在处理")
+  if (status === "streaming") {
+    expect(html).not.toContain('class="tool-activity"')
+    expect(html).not.toContain('data-component="tool-trigger"')
+    return
+  }
+  expect(html.match(/data-component="tool-trigger"/g)).toHaveLength(3)
+  expect(html).toContain("explore · Inspect tools")
+  expect(html).toContain("explore · Inspect sessions")
+  expect(html).toContain("explore · Inspect UI")
+})
+
 test("shows every queued permission tool as waiting instead of working", () => {
   const messages = [
     {

@@ -23,6 +23,7 @@ export function SettingsProviderConnectDialog(props: {
   draft: ProviderDraft
   error?: string
   connecting: boolean
+  instructions?: string
   onClose: () => void
   onMethodChange: (methodIndex: number) => void
   onApiKeyChange: (value: string) => void
@@ -74,7 +75,9 @@ export function SettingsProviderConnectDialog(props: {
               onChange={props.onApiKeyChange}
             />
           ) : (
-            <div className="settings-provider-connect-note">{language.t("settings.providers.connect.browser")}</div>
+            <div className="settings-provider-connect-note whitespace-pre-wrap break-words" role="status">
+              {props.instructions || language.t("settings.providers.connect.browser")}
+            </div>
           )}
           {prompts.map((prompt) =>
             prompt.type === "select" ? (
