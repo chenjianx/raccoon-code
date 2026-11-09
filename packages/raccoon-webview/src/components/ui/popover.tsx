@@ -41,6 +41,10 @@ export function Popover(props: {
     const update = () => {
       const rect = rootRef.current?.getBoundingClientRect()
       if (!rect) return
+      if (rect.width === 0 && rect.height === 0) {
+        props.onOpenChange(false)
+        return
+      }
       const width = Math.min(props.width ?? rect.width, window.innerWidth - 16)
       const menu = menuRef.current
       const border = menu ? getComputedStyle(menu) : undefined

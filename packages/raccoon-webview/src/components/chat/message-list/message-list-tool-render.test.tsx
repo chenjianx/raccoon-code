@@ -10,15 +10,18 @@ afterEach(() => {
 })
 
 test.each([
-  { input: { path: "/workspace/src/index.ts" }, path: "/workspace/src/index.ts", name: "index.ts" },
-  { input: { path: "/workspace/src/" }, path: "/workspace/src/", name: "src" },
-  { input: { filePath: "/workspace/src/index.ts" }, path: "/workspace/src/index.ts", name: "index.ts" },
-])("shows the read target in the summary with its full path on hover: %j", (fixture) => {
+  { tool: "read", input: { path: "/workspace/src/index.ts" }, path: "/workspace/src/index.ts", name: "index.ts" },
+  { tool: "read", input: { path: "/workspace/src/" }, path: "/workspace/src/", name: "src" },
+  { tool: "read", input: { filePath: "/workspace/src/index.ts" }, path: "/workspace/src/index.ts", name: "index.ts" },
+  { tool: "write", input: { path: "/workspace/src/index.ts", content: "export {}" }, path: "/workspace/src/index.ts", name: "index.ts" },
+  { tool: "write", input: { path: "src/index.ts", content: "export {}" }, path: "src/index.ts", name: "index.ts" },
+  { tool: "write", input: { filePath: "/workspace/src/index.ts", content: "export {}" }, path: "/workspace/src/index.ts", name: "index.ts" },
+])("shows the file target in the summary with its full path on hover: %j", (fixture) => {
   const html = renderToStaticMarkup(
     <VSCodeProvider>
       <LanguageProvider>
         <SessionProvider>
-          <ToolPart part={{ id: "prt_read", type: "tool", tool: "read", status: "completed", input: fixture.input }} />
+          <ToolPart part={{ id: "prt_file", type: "tool", tool: fixture.tool, status: "completed", input: fixture.input }} />
         </SessionProvider>
       </LanguageProvider>
     </VSCodeProvider>,

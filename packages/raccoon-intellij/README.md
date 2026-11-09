@@ -56,15 +56,15 @@ src/main/resources/
 bun install                 # 在仓库根执行一次
 bun run build               # 在本目录：= build:webview + build:sidecar
 
-# 2) 构建插件 zip（需 JDK 17，IntelliJ 2024.2 运行时）
-JAVA_HOME=<jdk17> ./gradlew buildPlugin
+# 2) 构建插件 zip（需 JDK 21，面向 IntelliJ 2026.1–2026.2）
+JAVA_HOME=<jdk21> ./gradlew buildPlugin
 # 产物：build/distributions/raccoon-intellij-0.0.0.zip
 ```
 
 ## 本地运行
 
 ```bash
-JAVA_HOME=<jdk17> ./gradlew runIde
+JAVA_HOME=<jdk21> ./gradlew runIde
 ```
 
 正式构建会生成并打包 macOS、Windows、Linux glibc 和 Alpine/musl 的 x64、ARM64 二进制，

@@ -28,8 +28,9 @@ export function ModelPicker(props: {
   onChange: (model: { providerID: string; modelID: string }) => void
   ariaLabel: string
   placeholder: string
+  fullWidth?: boolean
   compact?: boolean
-  placement?: "top" | "bottom"
+  placement?: "top" | "bottom" | "auto"
   maxWidth?: number
   allowUnset?: boolean
   unsetLabel?: string
@@ -76,9 +77,11 @@ export function ModelPicker(props: {
       className={
         composer
           ? "relative inline-flex min-w-0 max-w-[min(210px,52vw)] flex-none"
-          : compact
-            ? "relative inline-flex w-max min-w-0 max-w-full flex-none"
-            : "relative w-[min(190px,46vw)] min-w-[120px] max-w-full"
+          : props.fullWidth
+            ? "relative flex w-full min-w-0"
+            : compact
+              ? "relative inline-flex w-max min-w-0 max-w-full flex-none"
+              : "relative w-[min(190px,46vw)] min-w-[120px] max-w-full"
       }
       menuClassName={`${composer ? "prompt-model-menu " : ""}overflow-hidden rounded-[6px] border border-[var(--color-border)] bg-[var(--color-background)] shadow-[var(--shadow-md)]`}
       portal
@@ -91,7 +94,7 @@ export function ModelPicker(props: {
             composer
               ? "h-[26px] w-max max-w-full shrink-0 border-transparent bg-transparent text-[12px]"
               : compact
-                ? "h-[26px] w-max max-w-full shrink-0 border-[var(--color-border)] bg-transparent text-[12px]"
+                ? `${props.fullWidth ? "h-8 w-full" : "h-[26px] w-max"} max-w-full shrink-0 border-[var(--color-border)] bg-transparent text-[12px]`
                 : "min-h-[28px] border-[var(--color-border)] bg-[var(--color-input)]"
           }`}
           style={maxWidth ? { maxWidth, width: `min(${maxWidth}px, 100%)` } : undefined}
@@ -117,7 +120,7 @@ export function ModelPicker(props: {
               </span>
             ) : (
               <span
-                className={`whitespace-nowrap text-[12px] font-medium text-[var(--color-foreground)] ${compact ? (maxWidth ? "overflow-hidden text-ellipsis" : "max-w-none") : "overflow-hidden text-ellipsis"}`}
+                className={`whitespace-nowrap text-[12px] font-medium text-[var(--color-foreground)] ${compact ? (maxWidth || props.fullWidth ? "overflow-hidden text-ellipsis" : "max-w-none") : "overflow-hidden text-ellipsis"}`}
               >
                 {compact ? currentLabel : current?.modelName ?? props.placeholder}
               </span>

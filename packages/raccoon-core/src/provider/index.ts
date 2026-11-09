@@ -207,6 +207,7 @@ export class RaccoonProvider {
       scheduleSubAgentRefresh: (sessionID) => this.sessions.scheduleSubAgentRefresh(sessionID),
       isTrackedSubAgent: (sessionID) => this.sessions.isTrackedSubAgent(sessionID),
       completeTrackedSubAgent: (sessionID) => this.sessions.completeTrackedSubAgent(sessionID),
+      recordToolProgress: (data) => this.sessions.recordToolProgress(data),
       refreshMcpInstalled: () => this.refreshMcpInstalled(),
       postMessage: (message) => this.webviewHost.post("chat", message),
       postSubAgentEvent: (sessionID, message) => this.sessions.postSubAgentEvent(sessionID, message),

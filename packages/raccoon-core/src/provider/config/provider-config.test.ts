@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, test } from "bun:test"
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { OpenCode } from "@opencode/client/promise"
 import type { RaccoonModel } from "@opencode-ai/raccoon-webview"
 import type { RaccoonProviderConfig as RaccoonProviderConfigType } from "./provider-config"
 
@@ -179,10 +180,13 @@ describe("RaccoonProviderConfig", () => {
         config: { get: async () => [{ type: "directory", path: globalDir }] },
         provider: { get: async () => ({ data: { id: "openai", integrationID: "openai-auth" } }) },
         integration: {
-          get: async () => ({ data: {
-            id: "openai-auth", methods: [{ type: "key", label: "API key" }],
-            connections: [{ type: "credential", id: "cred-1", label: "key", method: "key" }],
-          } }),
+          get: async (input: { integrationID: string }) => {
+            expect(input.integrationID).toBe("openai-auth")
+            return { data: {
+              id: "openai-auth", methods: [{ type: "key", label: "API key" }],
+              connections: [{ type: "credential", id: "cred-1", label: "key", method: "key" }],
+            } }
+          },
           connect: { key: async (input: unknown) => { keyInputs.push(input) } },
         },
         credential: { remove: async ({ credentialID }: { credentialID: string }) => { removed.push(credentialID) } },
@@ -213,6 +217,98 @@ describe("RaccoonProviderConfig", () => {
       await rm(dir, { recursive: true, force: true })
       await rm(globalDir, { recursive: true, force: true })
     }
+  })
+
+  test.each(["oauth", "key"] as const)("reconnects a denied provider through its %s integration", async (method) => {
+    const dir = await mkdtemp(join(tmpdir(), "raccoon-provider-reconnect-"))
+    const posted: unknown[] = []
+    const opened: string[] = []
+    const requests: string[] = []
+    let refreshed = false
+    try {
+      await writeFile(join(dir, "raccoon.jsonc"), JSON.stringify({ experimental: { policies: [
+        { action: "provider.use", resource: "openai", effect: "deny" },
+      ] } }))
+      const client = OpenCode.make({
+        baseUrl: "http://localhost:3000",
+        fetch: async (input, init) => {
+          const request = new Request(input, init)
+          const url = new URL(request.url)
+          requests.push(url.pathname)
+          if (url.pathname === "/api/provider/openai") return Response.json({
+            _tag: "ProviderNotFoundError", providerID: "openai", message: "Provider not found: openai",
+          }, { status: 404 })
+          if (url.pathname === "/api/integration/openai") return Response.json({ data: {
+            id: "openai", name: "OpenAI", connections: [], methods: [{ id: "login", type: method, label: "Sign in" }],
+          } })
+          if (url.pathname === `/api/integration/openai/connect/${method}`) {
+            expect(JSON.parse(await readFile(join(dir, "raccoon.jsonc"), "utf8")).experimental.policies).toEqual([
+              { action: "provider.use", resource: "openai", effect: "deny" },
+            ])
+            expect(await request.json()).toEqual(method === "oauth" ? { methodID: "login" } : { key: "secret" })
+            if (method === "key") return new Response(null, { status: 204 })
+            return Response.json({ data: {
+              attemptID: "attempt-1", mode: "auto", url: "https://auth.openai.com/authorize", instructions: "Sign in",
+              time: { created: 1, expires: 2 },
+            } })
+          }
+          if (url.pathname === "/api/integration/openai/connect/oauth/attempt-1")
+            return Response.json({ data: { status: "complete", time: { created: 1, expires: 2 } } })
+          if (url.pathname === "/api/config") return Response.json([{ type: "directory", path: dir }])
+          if (url.pathname === "/api/location/reload") return new Response(null, { status: 204 })
+          throw new Error(`Unexpected request: ${request.method} ${url.pathname}`)
+        },
+      })
+      const config = new RaccoonProviderConfig({
+        client: async () => client, directory: () => dir,
+        getState: () => ({}) as never, setState: () => {}, post: () => {},
+        refresh: async () => { refreshed = true }, withLoading: async (run) => await run(),
+        openExternal: async (url) => { opened.push(url) }, promptInput: async () => undefined,
+        webviewHost: { post: (_source: unknown, message: unknown) => posted.push(message) } as never,
+        pluginLanguage: () => "en",
+      })
+
+      await config.connectProvider({ type: "connectProvider", providerID: "openai", methodIndex: 0, apiKey: " secret " })
+
+      expect(posted.at(-1)).toEqual({ type: "providerConnectFinished", providerID: "openai" })
+      expect(opened).toEqual(method === "oauth" ? ["https://auth.openai.com/authorize"] : [])
+      expect(requests).toContain(`/api/integration/openai/connect/${method}`)
+      expect(requests).toContain("/api/location/reload")
+      expect(refreshed).toBe(true)
+      expect(JSON.parse(await readFile(join(dir, "raccoon.jsonc"), "utf8")).experimental.policies).toEqual([
+        { action: "provider.use", resource: "openai", effect: "allow" },
+      ])
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test.each([
+    { status: 401, body: { _tag: "UnauthorizedError", message: "Unauthorized" }, error: "Unauthorized" },
+    { status: 503, body: { _tag: "ServiceUnavailableError", message: "Service unavailable" }, error: "Service unavailable" },
+  ])("preserves provider lookup errors without starting authorization ($status)", async ({ status, body, error }) => {
+    const requests: string[] = []
+    const posted: unknown[] = []
+    const client = OpenCode.make({
+      baseUrl: "http://localhost:3000",
+      fetch: async (input, init) => {
+        requests.push(new URL(new Request(input, init).url).pathname)
+        return Response.json(body, { status })
+      },
+    })
+    const config = new RaccoonProviderConfig({
+      client: async () => client, directory: () => "/workspace",
+      getState: () => ({}) as never, setState: () => {}, post: () => {},
+      refresh: async () => {}, withLoading: async (run) => await run(),
+      openExternal: async () => {}, promptInput: async () => undefined,
+      webviewHost: { post: (_source: unknown, message: unknown) => posted.push(message) } as never,
+      pluginLanguage: () => "en",
+    })
+
+    await config.connectProvider({ type: "connectProvider", providerID: "openai" })
+
+    expect(requests).toEqual(["/api/provider/openai"])
+    expect(posted).toEqual([{ type: "providerConnectFinished", providerID: "openai", error }])
   })
 
   test("shows device authorization instructions before opening the browser and polling", async () => {
@@ -367,7 +463,7 @@ describe("RaccoonProviderConfig", () => {
     ).toEqual({ providerID: "raccoon", modelID: "big-pickle" })
   })
 
-  test("prefers raccoon when no model is configured (refresh/reload default)", () => {
+  test.each([{}, { raccoon: "raccoon-chat" }, { raccoon: "raccoon-pro-chat" }])("prefers Raccoon Pro when no model is configured (refresh/reload default: %j)", (defaults) => {
     const config = new RaccoonProviderConfig({
       client: async () => {
         throw new Error("not used")
@@ -387,17 +483,18 @@ describe("RaccoonProviderConfig", () => {
       } as never,
     })
 
-    // openai is listed first and has a server default, but raccoon is logged in (connected),
-    // so the unconfigured default must land on raccoon's server default.
     expect(
       config.resolveDefaultModel(
         [model("openai", "gpt-5"), model("raccoon", "raccoon-chat"), model("raccoon", "raccoon-pro-chat")],
-        { openai: "gpt-5", raccoon: "raccoon-pro-chat" },
+        { openai: "gpt-5", ...defaults },
       ),
     ).toEqual({ providerID: "raccoon", modelID: "raccoon-pro-chat" })
   })
 
-  test("uses first raccoon model when no raccoon server default is set", () => {
+  test.each([
+    { enabled: false, connected: true },
+    { enabled: true, connected: false },
+  ])("uses first raccoon model when Pro is unavailable (%j)", (availability) => {
     const config = new RaccoonProviderConfig({
       client: async () => {
         throw new Error("not used")
@@ -418,7 +515,11 @@ describe("RaccoonProviderConfig", () => {
     })
 
     expect(
-      config.resolveDefaultModel([model("openai", "gpt-5"), model("raccoon", "raccoon-chat")], { openai: "gpt-5" }),
+      config.resolveDefaultModel([
+        model("openai", "gpt-5"),
+        model("raccoon", "raccoon-chat"),
+        { ...model("raccoon", "raccoon-pro-chat"), ...availability },
+      ], { openai: "gpt-5" }),
     ).toEqual({ providerID: "raccoon", modelID: "raccoon-chat" })
   })
 
@@ -448,7 +549,7 @@ describe("RaccoonProviderConfig", () => {
     }
 
     expect(
-      config.resolveDefaultModel([model("openai", "gpt-5"), model("raccoon", "raccoon-chat")], {
+      config.resolveDefaultModel([model("openai", "gpt-5"), model("raccoon", "raccoon-chat"), model("raccoon", "raccoon-pro-chat")], {
         raccoon: "raccoon-chat",
       }),
     ).toEqual({ providerID: "openai", modelID: "gpt-5" })

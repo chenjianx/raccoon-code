@@ -589,34 +589,6 @@ export function SessionProvider(props: { children: ReactNode }) {
       }
       if (message.type === "terminalContextResult" || message.type === "terminalContextError") return
       if (message.type === "gitChangesContextResult" || message.type === "gitChangesContextError") return
-      if (message.type === "raccoonLoginFinished") {
-        // Only an actual login completion fires this. The extension posts the refreshed
-        // `state` (with raccoon connected) before this message, so stateRef holds the
-        // logged-in model list/defaults here. Default the selection to Raccoon, preferring
-        // the server default for the "raccoon" provider.
-        if (message.error) return
-        const current = stateRef.current
-        const raccoonModels = current.models.filter(
-          (model) => model.providerID === "raccoon" && model.enabled && model.connected,
-        )
-        if (raccoonModels.length === 0) return
-        const defaultModelID = current.defaults?.["raccoon"]
-        const preferred = raccoonModels.find((model) => model.modelID === defaultModelID) ?? raccoonModels[0]
-        if (!preferred) return
-        if (
-          current.defaultModel?.providerID === preferred.providerID &&
-          current.defaultModel?.modelID === preferred.modelID
-        )
-          return
-        const model = { providerID: preferred.providerID, modelID: preferred.modelID }
-        setState((state) => {
-          const next = { ...state, selectedModel: model, defaultModel: model }
-          vscode.setState(next)
-          return next
-        })
-        vscode.postMessage({ type: "setModel", model })
-        return
-      }
     })
 
     vscode.postMessage({ type: "webviewReady" })

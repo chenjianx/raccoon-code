@@ -12,6 +12,7 @@ type EventHandlerDeps = {
   scheduleSubAgentRefresh: (sessionID: string) => void
   isTrackedSubAgent: (sessionID: string) => boolean
   completeTrackedSubAgent: (sessionID: string) => void
+  recordToolProgress: (data: Extract<OpenCodeEvent, { type: "session.tool.progress" }>["data"]) => void
   postSubAgentEvent: (sessionID: string, message: ExtensionToWebview) => void
   pushPartDelta: (sessionID: string, messageID: string, partID: string, field: string, delta: string) => void
   pushSubAgentPartDelta: (sessionID: string, messageID: string, partID: string, field: string, delta: string) => void
@@ -89,6 +90,8 @@ export class RaccoonEventHandler {
     const sessionID = event.data.sessionID
     const active = sessionID === this.deps.getState().activeSessionID
     if (!active && !this.deps.isTrackedSubAgent(sessionID)) return
+
+    if (event.type === "session.tool.progress") this.deps.recordToolProgress(event.data)
 
     if (event.type === "session.text.ended" || event.type === "session.reasoning.ended") {
       const field = event.type === "session.text.ended" ? "text" : "reasoning"

@@ -1,4 +1,13 @@
-import { ArrowCounterClockwise, ClipboardText, DownloadSimple, Plus, Trash, UploadSimple } from "@phosphor-icons/react"
+import {
+  ArrowCounterClockwise,
+  CaretLeft,
+  ClipboardText,
+  DotsThree,
+  DownloadSimple,
+  Plus,
+  Trash,
+  UploadSimple,
+} from "@phosphor-icons/react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import type {
   RaccoonAgent,
@@ -18,6 +27,8 @@ import { PermissionEditor, PermissionRuleset } from "./permission-editor"
 import { mergePermissionPatch, type PermissionPatch } from "./permission-utils"
 import { clampParam, downloadJson, formatModelString, NAME_RE, parseModelString, titleCase, uniqueName } from "./utils"
 import { agentDisplayDescription } from "../../agent-description"
+
+const AGENT_TABS = ["overview", "model", "instructions", "permissions"] as const
 
 type ModelSelection = { providerID: string; modelID: string }
 type AgentIdentity = { name: string; scope: RaccoonAgentScope }
@@ -167,7 +178,9 @@ export function SettingsAgents(props: {
   const onDeleteAgent = props.onDeleteAgent
   const [selectedName, setSelectedName] = useState("")
   const [creating, setCreating] = useState(false)
-  const [editorTab, setEditorTab] = useState<"overview" | "instructions" | "permissions">("overview")
+  const [editorTab, setEditorTab] = useState<(typeof AGENT_TABS)[number]>("overview")
+  const [view, setView] = useState<"list" | "detail">("list")
+  const workspaceRef = useRef<HTMLDivElement>(null)
   const [notice, setNotice] = useState("")
   const [savingRequestID, setSavingRequestID] = useState<string>()
   const [saveError, setSaveError] = useState("")
@@ -183,6 +196,37 @@ export function SettingsAgents(props: {
     () => agents.find((agent) => agent.name === selectedName) ?? visibleAgents[0],
     [agents, visibleAgents, selectedName],
   )
+  const selectionRef = useRef(selected)
+  const selectedDescription = selected && agentDisplayDescription(selected, language.t)
+  useEffect(() => {
+    const target = workspaceRef.current?.querySelector<HTMLButtonElement>(
+      view === "detail" ? ".settings-agent-back" : '.settings-agent-list-item[aria-current="true"]',
+    )
+    if (target?.getClientRects().length) target.focus()
+  }, [view])
+
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      workspaceRef.current?.querySelectorAll<HTMLDetailsElement>(".settings-agent-menu[open]").forEach((menu) => {
+        if (event.target instanceof Node && menu.contains(event.target)) return
+        menu.open = false
+      })
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return
+      workspaceRef.current?.querySelectorAll<HTMLDetailsElement>(".settings-agent-menu[open]").forEach((menu) => {
+        menu.open = false
+        menu.querySelector("summary")?.focus()
+      })
+    }
+    document.addEventListener("pointerdown", onPointerDown)
+    document.addEventListener("keydown", onKeyDown)
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown)
+      document.removeEventListener("keydown", onKeyDown)
+    }
+  }, [])
+
   const [draft, setDraft] = useState(() => agentDraft(selected))
   const [baseline, setBaseline] = useState(() => draftSnapshot(draft))
 
@@ -193,7 +237,9 @@ export function SettingsAgents(props: {
   }, [agents, visibleAgents, selectedName, creating, savingRequestID])
 
   useEffect(() => {
-    if (creating || savingRequestID) return
+    // Finishing a failed save must not reload the unchanged selection over the draft.
+    if (creating || savingRequestID || selectionRef.current === selected) return
+    selectionRef.current = selected
     const next = agentDraft(selected)
     setDraft(next)
     setBaseline(draftSnapshot(next))
@@ -253,6 +299,7 @@ export function SettingsAgents(props: {
       return
     }
     setCreating(isCreating)
+    setView("detail")
     setDraft(next)
     setBaseline(draftSnapshot(next))
     setSelectedName(next.name)
@@ -262,6 +309,8 @@ export function SettingsAgents(props: {
     setImportError("")
   }
   const selectExisting = (name: string) => {
+    setView("detail")
+    if (!creating && selected?.name === name) return
     if (dirty || savingRequestID) {
       setNotice(language.t("settings.agents.unsaved.blocked"))
       return
@@ -274,6 +323,7 @@ export function SettingsAgents(props: {
     setImportError("")
   }
   const discard = () => {
+    if (creating) setView("list")
     const next = agentDraft(selected)
     setCreating(false)
     setDraft(next)
@@ -310,9 +360,11 @@ export function SettingsAgents(props: {
     setNotice("")
   }
   const applyPermission = (patch: PermissionPatch) => {
+    setView("detail")
     setDraft((current) => ({ ...current, permission: mergePermissionPatch(current.permission, patch) }))
   }
   const updateDraft = <K extends keyof AgentDraft>(key: K, value: AgentDraft[K]) => {
+    setView("detail")
     setSaveError("")
     setDraft((current) => ({ ...current, [key]: value }))
   }
@@ -342,310 +394,398 @@ export function SettingsAgents(props: {
 
   return (
     <>
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="m-0">{language.t("settings.agents.title")}</h3>
-        <div className="flex items-center gap-2">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/json,.json"
-            className="hidden"
-            onChange={(event) => {
-              void onImportFile(event.currentTarget.files?.[0])
-              event.currentTarget.value = ""
-            }}
-          />
-          <Button
-            variant="small"
-            disabled={dirty || !!savingRequestID}
-            title={language.t("settings.agents.import")}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <UploadSimple size={14} weight="bold" />
-            <span>{language.t("settings.agents.import")}</span>
-          </Button>
-          <Button variant="small" disabled={dirty || !!savingRequestID} onClick={() => selectDraft(newDraft(agents), true)}>
-            <Plus size={14} weight="bold" />
-            <span>{language.t("settings.agents.new")}</span>
-          </Button>
-        </div>
-      </div>
-      {importError ? <div className="mb-2 text-[11px] text-[var(--color-error)]">{importError}</div> : null}
-      <div className="settings-agent-shell">
-        <div className="settings-card settings-agent-list">
-          {visibleAgents.length === 0 ? (
-            <div className="px-3 py-4 text-[12px] text-[var(--color-muted)]">{language.t("settings.agents.empty")}</div>
-          ) : (
-            visibleAgents.map((agent) => (
-              <button
-                type="button"
-                key={agent.name}
-                className={`settings-agent-list-item ${!creating && agent.name === selected?.name ? "active" : ""}`}
-                disabled={!!savingRequestID}
-                onClick={() => selectExisting(agent.name)}
+      <div
+        className="settings-agents"
+        data-view={view}
+        ref={workspaceRef}
+        onClick={(event) => {
+          if (!(event.target instanceof Element)) return
+          const menu = event.target.closest("button")?.closest<HTMLDetailsElement>("details")
+          if (menu) {
+            menu.open = false
+            menu.querySelector("summary")?.focus()
+          }
+        }}
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          onChange={(event) => {
+            void onImportFile(event.currentTarget.files?.[0])
+            event.currentTarget.value = ""
+          }}
+        />
+        <div className="settings-agent-page-header">
+          <h3>{language.t("settings.agents.title")}</h3>
+          <div className="settings-agent-page-actions">
+            <Button
+              variant="small"
+              disabled={dirty || !!savingRequestID}
+              onClick={() => selectDraft(newDraft(agents), true)}
+            >
+              <Plus size={14} weight="bold" />
+              <span>{language.t("settings.agents.new")}</span>
+            </Button>
+            <details className="settings-agent-menu">
+              <summary
+                aria-label={language.t("settings.agents.listActions")}
+                title={language.t("settings.agents.listActions")}
               >
-                <span className="settings-agent-list-main">
-                  <span className="settings-agent-list-name">{titleCase(agent.name)}</span>
-                  <span className="settings-agent-list-description">{agentDisplayDescription(agent, language.t) || agent.name}</span>
-                </span>
-                <span className="settings-agent-list-tags">
-                  <span>{agent.mode}</span>
-                  {agent.hidden ? <span>{language.t("settings.agents.hidden.title")}</span> : null}
-                  {agent.native ? <span>{language.t("settings.agents.native")}</span> : null}
-                </span>
-              </button>
-            ))
-          )}
-        </div>
-
-        <div className="settings-card settings-model-card settings-agent-panel">
-          <div className="settings-agent-panel-header">
-            <div className="settings-agent-panel-title">
-              <div className="settings-agent-panel-name">{draft.name}</div>
-              <div className="settings-agent-panel-subtitle">
-                {creating
-                  ? language.t("settings.agents.status.new")
-                  : `${selected?.native ? `${language.t("settings.agents.native")} · ` : ""}${language.t(`settings.agents.scope.${draft.scope}`)}`}
-              </div>
-            </div>
-            <div className="settings-agent-panel-actions">
-              {selected && !creating ? (
+                <DotsThree size={18} weight="bold" />
+              </summary>
+              <div className="settings-agent-menu-items">
                 <Button
-                  variant="small"
+                  variant="ghost"
                   disabled={dirty || !!savingRequestID}
-                  title={language.t("settings.agents.duplicate")}
-                  onClick={() => selectDraft(duplicateDraft(selected, agents), true)}
+                  onClick={() => fileInputRef.current?.click()}
                 >
-                  <ClipboardText size={14} />
-                  <span>{language.t("settings.agents.action.duplicate")}</span>
+                  <UploadSimple size={14} weight="bold" />
+                  {language.t("settings.agents.import")}
                 </Button>
-              ) : null}
-              <Button
-                variant="small"
-                disabled={!!savingRequestID}
-                title={language.t("settings.agents.export")}
-                onClick={exportAgent}
-              >
-                <DownloadSimple size={14} weight="bold" />
-                <span>{language.t("settings.agents.export")}</span>
-              </Button>
-              {selected && !creating ? (
-                <Button
-                  variant="small"
-                  disabled={dirty || !!savingRequestID}
-                  title={selected.native ? language.t("settings.agents.reset") : language.t("settings.agents.delete")}
+              </div>
+            </details>
+          </div>
+        </div>
+        {importError ? (
+          <div className="settings-agent-error" role="alert">
+            {importError}
+          </div>
+        ) : null}
+        <div className="settings-agent-shell">
+          <nav className="settings-agent-list" aria-label={language.t("settings.agents.list")}>
+            {visibleAgents.length === 0 ? (
+              <div className="settings-agent-empty">{language.t("settings.agents.empty")}</div>
+            ) : (
+              (["primary", "subagent", "all"] as const).map((mode) => {
+                const group = visibleAgents.filter((agent) => agent.mode === mode)
+                if (group.length === 0) return null
+                return (
+                  <section
+                    className="settings-agent-group"
+                    key={mode}
+                    aria-label={language.t(`settings.agents.mode.${mode}`)}
+                  >
+                    <div className="settings-agent-group-label">{language.t(`settings.agents.mode.${mode}`)}</div>
+                    {group.map((agent) => {
+                      const description = agentDisplayDescription(agent, language.t) || agent.name
+                      return (
+                        <button
+                          type="button"
+                          key={agent.name}
+                          className={`settings-agent-list-item ${!creating && agent.name === selected?.name ? "active" : ""}`}
+                          aria-label={titleCase(agent.name)}
+                          aria-current={!creating && agent.name === selected?.name ? "true" : undefined}
+                          disabled={!!savingRequestID}
+                          onClick={() => selectExisting(agent.name)}
+                        >
+                          <span className="settings-agent-list-heading">
+                            <span className="settings-agent-list-name">{titleCase(agent.name)}</span>
+                            <span className="settings-agent-list-tags">
+                              {agent.hidden ? <span>{language.t("settings.agents.hidden.title")}</span> : null}
+                              {agent.native ? <span>{language.t("settings.agents.native")}</span> : null}
+                            </span>
+                          </span>
+                          <span className="settings-agent-list-description" title={description}>
+                            {description}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </section>
+                )
+              })
+            )}
+          </nav>
+          <section className="settings-agent-panel" aria-label={language.t("settings.agents.editor.label")}>
+            <Button variant="ghost" className="settings-agent-back" onClick={() => setView("list")}>
+              <CaretLeft size={14} weight="bold" />
+              {language.t("settings.agents.list")}
+            </Button>
+            <div className="settings-agent-panel-header">
+              <div className="settings-agent-panel-title">
+                <div className="settings-agent-panel-heading">
+                  <div className="settings-agent-panel-name" title={draft.name}>
+                    {titleCase(draft.name)}
+                  </div>
+                  <span className="settings-agent-tag">{language.t(`settings.agents.mode.${draft.mode}`)}</span>
+                  {selected?.native && !creating ? (
+                    <span className="settings-agent-tag">{language.t("settings.agents.native")}</span>
+                  ) : null}
+                </div>
+                <div className="settings-agent-panel-subtitle" title={selectedDescription}>
+                  {creating ? language.t("settings.agents.status.new") : selectedDescription}
+                </div>
+              </div>
+              <details className="settings-agent-menu">
+                <summary
+                  aria-label={language.t("settings.agents.agentActions")}
+                  title={language.t("settings.agents.agentActions")}
+                >
+                  <DotsThree size={18} weight="bold" />
+                </summary>
+                <div className="settings-agent-menu-items">
+                  {selected && !creating ? (
+                    <Button
+                      variant="ghost"
+                      disabled={dirty || !!savingRequestID}
+                      title={language.t("settings.agents.duplicate")}
+                      onClick={() => selectDraft(duplicateDraft(selected, agents), true)}
+                    >
+                      <ClipboardText size={14} />
+                      {language.t("settings.agents.action.duplicate")}
+                    </Button>
+                  ) : null}
+                  <Button variant="ghost" disabled={!!savingRequestID} onClick={exportAgent}>
+                    <DownloadSimple size={14} weight="bold" />
+                    {language.t("settings.agents.export")}
+                  </Button>
+                  {selected && !creating ? (
+                    <Button
+                      variant="ghost"
+                      disabled={dirty || !!savingRequestID}
+                      title={
+                        selected.native ? language.t("settings.agents.reset") : language.t("settings.agents.delete")
+                      }
+                      onClick={() => {
+                        setPendingDelete(selected)
+                        setDeleteError("")
+                      }}
+                    >
+                      {selected.native ? (
+                        <ArrowCounterClockwise size={14} weight="bold" />
+                      ) : (
+                        <Trash size={14} weight="bold" />
+                      )}
+                      {language.t(selected.native ? "settings.agents.action.reset" : "settings.agents.action.delete")}
+                    </Button>
+                  ) : null}
+                </div>
+              </details>
+            </div>
+            <div className="settings-agent-tabs" role="tablist" aria-label={language.t("settings.agents.editor.label")}>
+              {AGENT_TABS.map((item) => (
+                <button
+                  id={`settings-agent-tab-${item}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={editorTab === item}
+                  aria-controls={`settings-agent-panel-${item}`}
+                  tabIndex={editorTab === item ? 0 : -1}
+                  className={`settings-agent-tab ${editorTab === item ? "active" : ""}`}
                   onClick={() => {
-                    setPendingDelete(selected)
-                    setDeleteError("")
+                    setEditorTab(item)
+                    setView("detail")
                   }}
+                  onKeyDown={(event) => {
+                    const next = nextAgentTab(item, event.key)
+                    if (!next) return
+                    event.preventDefault()
+                    setEditorTab(next)
+                    setView("detail")
+                    event.currentTarget.parentElement
+                      ?.querySelector<HTMLButtonElement>(`#settings-agent-tab-${next}`)
+                      ?.focus()
+                  }}
+                  key={item}
                 >
-                  {selected.native ? (
-                    <ArrowCounterClockwise size={14} weight="bold" />
-                  ) : (
-                    <Trash size={14} weight="bold" />
-                  )}
-                  <span>
-                    {selected.native
-                      ? language.t("settings.agents.action.reset")
-                      : language.t("settings.agents.action.delete")}
-                  </span>
-                </Button>
-              ) : null}
+                  {language.t(`settings.agents.tab.${item}`)}
+                </button>
+              ))}
             </div>
-          </div>
-          <div className="settings-agent-tabs" role="tablist" aria-label={language.t("settings.agents.editor.label")}>
-            {(["overview", "instructions", "permissions"] as const).map((item) => (
-              <button
-                type="button"
-                role="tab"
-                aria-selected={editorTab === item}
-                className={`settings-agent-tab ${editorTab === item ? "active" : ""}`}
-                onClick={() => setEditorTab(item)}
-                key={item}
-              >
-                {language.t(`settings.agents.tab.${item}`)}
-              </button>
-            ))}
-          </div>
-
-          <fieldset className="settings-agent-fields" disabled={!!savingRequestID} aria-busy={!!savingRequestID}>
-            {editorTab === "overview" ? (
-              <div className="settings-agent-editor-body">
-                <div className="settings-agent-section-title">{language.t("settings.agents.identity")}</div>
-                <SettingsRow
-                  title={language.t("settings.agents.name.title")}
-                  description={language.t("settings.agents.name.description")}
+            <fieldset className="settings-agent-fields" disabled={!!savingRequestID} aria-busy={!!savingRequestID}>
+              {AGENT_TABS.map((item) => (
+                <div
+                  id={`settings-agent-panel-${item}`}
+                  role="tabpanel"
+                  aria-labelledby={`settings-agent-tab-${item}`}
+                  className="settings-agent-tabpanel"
+                  hidden={editorTab !== item}
+                  key={item}
                 >
-                  <div className="flex w-full flex-col gap-1">
-                    <TextInput
-                      className="settings-provider-input w-full"
-                      value={draft.name}
-                      onChange={(value) => updateDraft("name", value)}
-                      placeholder="custom-agent"
-                    />
-                    {invalidName || duplicateName ? (
-                      <div className="text-[11px] text-[var(--color-error)]">
-                        {invalidName
-                          ? language.t("settings.agents.error.name")
-                          : language.t("settings.agents.error.duplicate")}
+                  {editorTab === item ? (
+                    item === "overview" ? (
+                      <div className="settings-agent-editor-body">
+                        <div className="settings-agent-identity">
+                          <SettingsRow title={language.t("settings.agents.name.title")}>
+                            <div className="settings-agent-name-field">
+                              <TextInput
+                                className="settings-provider-input w-full"
+                                ariaLabel={language.t("settings.agents.name.title")}
+                                value={draft.name}
+                                onChange={(value) => updateDraft("name", value)}
+                                placeholder="custom-agent"
+                              />
+                              {invalidName || duplicateName ? (
+                                <div className="settings-agent-error" role="alert">
+                                  {language.t(
+                                    invalidName ? "settings.agents.error.name" : "settings.agents.error.duplicate",
+                                  )}
+                                </div>
+                              ) : null}
+                            </div>
+                          </SettingsRow>
+                          <SettingsRow title={language.t("settings.agents.scope.title")}>
+                            <Select
+                              className="settings-select"
+                              value={draft.scope}
+                              ariaLabel={language.t("settings.agents.scope.title")}
+                              onChange={(value) => updateDraft("scope", value as RaccoonAgentScope)}
+                              options={[
+                                { value: "project", label: language.t("settings.agents.scope.project") },
+                                { value: "user", label: language.t("settings.agents.scope.user") },
+                              ]}
+                            />
+                          </SettingsRow>
+                        </div>
+                        <SettingsRow title={language.t("settings.agents.description.title")}>
+                          <textarea
+                            className="settings-agent-description"
+                            aria-label={language.t("settings.agents.description.title")}
+                            value={draft.description}
+                            onChange={(event) => updateDraft("description", event.currentTarget.value)}
+                            placeholder={language.t("settings.agents.description.placeholder")}
+                          />
+                        </SettingsRow>
+                        <SettingsRow title={language.t("settings.agents.mode.title")}>
+                          <Select
+                            className="settings-select"
+                            value={draft.mode}
+                            ariaLabel={language.t("settings.agents.mode.title")}
+                            onChange={(value) => updateDraft("mode", value as RaccoonAgentMode)}
+                            options={[
+                              { value: "primary", label: language.t("settings.agents.mode.primary") },
+                              { value: "subagent", label: language.t("settings.agents.mode.subagent") },
+                              { value: "all", label: language.t("settings.agents.mode.all") },
+                            ]}
+                          />
+                        </SettingsRow>
+                        <label className="settings-agent-hidden">
+                          <input
+                            type="checkbox"
+                            checked={draft.hidden}
+                            onChange={(event) => updateDraft("hidden", event.currentTarget.checked)}
+                          />
+                          <span>{language.t("settings.agents.hidden.description")}</span>
+                        </label>
                       </div>
-                    ) : null}
-                  </div>
-                </SettingsRow>
-                <SettingsRow
-                  title={language.t("settings.agents.scope.title")}
-                  description={language.t("settings.agents.scope.description")}
-                >
-                  <Select
-                    className="settings-select"
-                    value={draft.scope}
-                    ariaLabel={language.t("settings.agents.scope.title")}
-                    onChange={(value) => updateDraft("scope", value as RaccoonAgentScope)}
-                    options={[
-                      { value: "project", label: language.t("settings.agents.scope.project") },
-                      { value: "user", label: language.t("settings.agents.scope.user") },
-                    ]}
-                  />
-                </SettingsRow>
-                <div className="settings-agent-section-title">{language.t("settings.agents.behavior")}</div>
-                <SettingsRow
-                  title={language.t("settings.agents.description.title")}
-                  description={language.t("settings.agents.description.description")}
-                >
-                  <textarea
-                    className="settings-agent-description"
-                    value={draft.description}
-                    onChange={(event) => updateDraft("description", event.currentTarget.value)}
-                    placeholder={language.t("settings.agents.description.placeholder")}
-                  />
-                </SettingsRow>
-                <SettingsRow
-                  title={language.t("settings.agents.mode.title")}
-                  description={language.t("settings.agents.mode.description")}
-                >
-                  <Select
-                    className="settings-select"
-                    value={draft.mode}
-                    ariaLabel={language.t("settings.agents.mode.title")}
-                    onChange={(value) => updateDraft("mode", value as RaccoonAgentMode)}
-                    options={[
-                      { value: "primary", label: language.t("settings.agents.mode.primary") },
-                      { value: "subagent", label: language.t("settings.agents.mode.subagent") },
-                      { value: "all", label: language.t("settings.agents.mode.all") },
-                    ]}
-                  />
-                </SettingsRow>
-                <SettingsRow
-                  title={language.t("settings.agents.model.title")}
-                  description={language.t("settings.agents.model.description")}
-                >
-                  <ModelPicker
-                    value={draft.model}
-                    models={connectedModels}
-                    onChange={(model) => updateDraft("model", model)}
-                    ariaLabel={language.t("settings.agents.model.title")}
-                    placeholder={language.t("settings.models.noModel")}
-                    compact
-                    placement="bottom"
-                    maxWidth={255}
-                  />
-                </SettingsRow>
-                <SettingsRow
-                  title={language.t("settings.agents.parameters.title")}
-                  description={language.t("settings.agents.parameters.description")}
-                >
-                  <div className="settings-agent-params">
-                    <label>
-                      <span>temperature</span>
-                      <TextInput
-                        value={draft.temperature}
-                        onChange={(value) => updateDraft("temperature", value)}
-                        placeholder="0 – 2"
-                      />
-                    </label>
-                    <label>
-                      <span>top_p</span>
-                      <TextInput
-                        value={draft.topP}
-                        onChange={(value) => updateDraft("topP", value)}
-                        placeholder="0 – 1"
-                      />
-                    </label>
-                    <label>
-                      <span>steps</span>
-                      <TextInput
-                        value={draft.steps}
-                        onChange={(value) => updateDraft("steps", value)}
-                        placeholder="1 – 100"
-                      />
-                    </label>
-                  </div>
-                </SettingsRow>
-                <SettingsRow
-                  title={language.t("settings.agents.hidden.title")}
-                  description={language.t("settings.agents.hidden.description")}
-                >
-                  <input
-                    type="checkbox"
-                    role="switch"
-                    className="settings-toggle"
-                    checked={draft.hidden}
-                    onChange={(event) => updateDraft("hidden", event.currentTarget.checked)}
-                  />
-                </SettingsRow>
-              </div>
-            ) : null}
-
-            {editorTab === "instructions" ? (
-              <div className="settings-agent-editor-body settings-agent-instructions">
-                <SettingsRow
-                  title={language.t("settings.agents.prompt.title")}
-                  description={language.t("settings.agents.prompt.description")}
-                >
-                  <textarea
-                    className="settings-agent-prompt"
-                    value={draft.prompt}
-                    onChange={(event) => updateDraft("prompt", event.currentTarget.value)}
-                    placeholder={language.t("settings.agents.prompt.placeholder")}
-                  />
-                </SettingsRow>
-              </div>
-            ) : null}
-
-            {editorTab === "permissions" ? (
-              <div className="settings-agent-editor-body settings-agent-permissions">
-                <PermissionEditor
-                  permission={draft.permission}
-                  rules={editingRules}
-                  inherited
-                  onChange={applyPermission}
-                />
-                {editingRules && editingRules.length > 0 ? (
-                  <PermissionRuleset agent={draft.name} rules={editingRules} />
-                ) : null}
-              </div>
-            ) : null}
-          </fieldset>
-
-          {dirty || savingRequestID || saveError ? (
+                    ) : item === "model" ? (
+                      <div className="settings-agent-editor-body">
+                        <SettingsRow
+                          title={language.t("settings.agents.model.title")}
+                          description={language.t("settings.agents.model.description")}
+                        >
+                          <ModelPicker
+                            value={draft.model}
+                            models={connectedModels}
+                            onChange={(model) => updateDraft("model", model)}
+                            ariaLabel={language.t("settings.agents.model.title")}
+                            placeholder={
+                              draft.model ? formatModelString(draft.model) : language.t("settings.agents.model.inherit")
+                            }
+                            compact
+                            fullWidth
+                            placement="auto"
+                            allowUnset
+                            unsetLabel={language.t("settings.agents.model.inherit")}
+                            onUnset={() => updateDraft("model", undefined)}
+                          />
+                        </SettingsRow>
+                        <SettingsRow
+                          title={language.t("settings.agents.parameters.title")}
+                          description={language.t("settings.agents.parameters.description")}
+                        >
+                          <div className="settings-agent-params">
+                            <label>
+                              <span>Temperature</span>
+                              <TextInput
+                                value={draft.temperature}
+                                onChange={(value) => updateDraft("temperature", value)}
+                                placeholder="0 – 2"
+                              />
+                            </label>
+                            <label>
+                              <span>Top P</span>
+                              <TextInput
+                                value={draft.topP}
+                                onChange={(value) => updateDraft("topP", value)}
+                                placeholder="0 – 1"
+                              />
+                            </label>
+                            <label>
+                              <span>{language.t("settings.agents.steps")}</span>
+                              <TextInput
+                                value={draft.steps}
+                                onChange={(value) => updateDraft("steps", value)}
+                                placeholder="1 – 100"
+                              />
+                            </label>
+                          </div>
+                        </SettingsRow>
+                      </div>
+                    ) : item === "instructions" ? (
+                      <div className="settings-agent-editor-body settings-agent-instructions">
+                        <SettingsRow
+                          title={language.t("settings.agents.prompt.title")}
+                          description={language.t("settings.agents.prompt.description")}
+                        >
+                          <textarea
+                            className="settings-agent-prompt"
+                            aria-label={language.t("settings.agents.prompt.title")}
+                            value={draft.prompt}
+                            onChange={(event) => updateDraft("prompt", event.currentTarget.value)}
+                            placeholder={language.t("settings.agents.prompt.placeholder")}
+                          />
+                        </SettingsRow>
+                      </div>
+                    ) : (
+                      <div className="settings-agent-editor-body settings-agent-permissions">
+                        <PermissionEditor
+                          permission={draft.permission}
+                          rules={editingRules}
+                          inherited
+                          onChange={applyPermission}
+                        />
+                        {editingRules && editingRules.length > 0 ? (
+                          <PermissionRuleset agent={draft.name} rules={editingRules} />
+                        ) : null}
+                      </div>
+                    )
+                  ) : null}
+                </div>
+              ))}
+            </fieldset>
             <div className="settings-agent-savebar">
-              <div className={`settings-agent-save-status ${saveError ? "error" : "dirty"}`}>
-                {saveError || notice || language.t(savingRequestID ? "settings.agents.saving" : "settings.agents.unsaved")}
+              <div
+                className={`settings-agent-save-status ${saveError ? "error" : dirty ? "dirty" : ""}`}
+                role="status"
+                aria-live="polite"
+              >
+                {saveError ||
+                  notice ||
+                  language.t(
+                    savingRequestID
+                      ? "settings.agents.saving"
+                      : dirty
+                        ? "settings.agents.unsaved"
+                        : "settings.actions.clean",
+                  )}
               </div>
               <div className="settings-agent-save-actions">
-                <Button variant="secondary" disabled={!!savingRequestID} onClick={discard}>
+                <Button variant="secondary" disabled={!dirty || !!savingRequestID} onClick={discard}>
                   {language.t("settings.agents.cancel")}
                 </Button>
                 <Button
                   variant="primary"
-                  disabled={invalidName || duplicateName || !!savingRequestID}
+                  disabled={!dirty || invalidName || duplicateName || !!savingRequestID}
                   onClick={save}
                 >
                   {language.t("settings.agents.save")}
                 </Button>
               </div>
             </div>
-          ) : null}
+          </section>
         </div>
       </div>
       {pendingDelete ? (
@@ -697,4 +837,11 @@ export function SettingsAgents(props: {
       ) : null}
     </>
   )
+}
+
+export function nextAgentTab(tab: (typeof AGENT_TABS)[number], key: string) {
+  if (key === "Home") return AGENT_TABS[0]
+  if (key === "End") return AGENT_TABS[AGENT_TABS.length - 1]
+  if (key !== "ArrowLeft" && key !== "ArrowRight") return undefined
+  return AGENT_TABS[(AGENT_TABS.indexOf(tab) + (key === "ArrowRight" ? 1 : AGENT_TABS.length - 1)) % AGENT_TABS.length]
 }

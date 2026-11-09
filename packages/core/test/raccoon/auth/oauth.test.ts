@@ -6,7 +6,7 @@ import { Integration } from "../../../src/integration.js"
 import { RACCOON_REAUTH_REQUIRED, RaccoonOAuth } from "../../../src/raccoon/auth/oauth.js"
 
 describe("Raccoon OAuth", () => {
-  test("exchanges a browser callback and records account scope", async () => {
+  test("exchanges a browser callback with top-level state and records account scope", async () => {
     const server = Bun.serve({
       port: 0,
       fetch(request) {
@@ -25,9 +25,13 @@ describe("Raccoon OAuth", () => {
             const authorization = yield* RaccoonOAuth.browser().authorize({
               serverUrl: `http://localhost:${server.port}`,
             })
-            const redirect = new URL(authorization.url).searchParams.get("redirect")
+            const login = new URL(authorization.url)
+            const redirect = login.searchParams.get("redirect")
             expect(redirect).toBeTruthy()
             const callback = new URL(redirect ?? "http://localhost")
+            expect(callback.search).toBe("")
+            expect(login.searchParams.get("state")).toBeTruthy()
+            callback.searchParams.set("state", login.searchParams.get("state")!)
             callback.searchParams.set("authorization_code", "code-1")
             const response = yield* Effect.promise(() => fetch(callback))
             expect(response.status).toBe(200)

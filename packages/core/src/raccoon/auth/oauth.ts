@@ -155,11 +155,13 @@ export namespace RaccoonOAuth {
             })
           })
           yield* Effect.addFinalizer(() => Effect.sync(() => server.close()))
-          const redirect = `http://127.0.0.1:${port}/auth/callback?state=${encodeURIComponent(state)}`
+          const redirect = `http://127.0.0.1:${port}/auth/callback`
           const url = new URL(`${baseURL}/login`)
           url.searchParams.set("ide", "CLI")
           url.searchParams.set("appname", "Raccoon")
           url.searchParams.set("redirect", redirect)
+          // Keep state out of the nested URL to avoid VS Code re-encoding its query separator.
+          url.searchParams.set("state", state)
           return {
             mode: "auto" as const,
             url: url.href,

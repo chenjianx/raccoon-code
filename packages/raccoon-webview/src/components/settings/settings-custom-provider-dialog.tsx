@@ -1,4 +1,5 @@
 import { X } from "@phosphor-icons/react"
+import { createPortal } from "react-dom"
 import { useLanguage } from "../../context/language"
 import { SettingsDialog } from "./settings-dialog"
 import { Button } from "../ui"
@@ -37,7 +38,7 @@ export function SettingsCustomProviderDialog(props: {
 }) {
   const language = useLanguage()
 
-  return (
+  const dialog = (
     <SettingsDialog
       titleId="custom-provider-title"
       title={language.t("settings.customProvider.title")}
@@ -256,4 +257,7 @@ export function SettingsCustomProviderDialog(props: {
           </div>
     </SettingsDialog>
   )
+
+  // Keep the editor outside the settings page's scrolling and query containers.
+  return typeof document === "undefined" ? dialog : createPortal(dialog, document.body)
 }

@@ -21,6 +21,7 @@ function createHandler(trackedSubAgentSessionID = "child") {
     scheduleSubAgentRefresh: (sessionID: string) => refreshed.push(sessionID),
     isTrackedSubAgent: (sessionID: string) => sessionID === trackedSubAgentSessionID,
     completeTrackedSubAgent: () => {},
+    recordToolProgress: () => {},
     postMessage: (message: ExtensionToWebview) => messages.push(message),
     postSubAgentEvent: (_sessionID: string, message: ExtensionToWebview) => messages.push(message),
     pushPartDelta: (_sessionID: string, _messageID: string, partID: string, field: string, delta: string) => {

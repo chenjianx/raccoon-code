@@ -224,7 +224,7 @@ function toolLabel(tool: string, t: ReturnType<typeof useLanguage>["t"]) {
 export function toolInfo(part: RaccoonMessagePart, t: ReturnType<typeof useLanguage>["t"]) {
   const tool = part.tool ?? "tool"
   const label = toolLabel(tool, t)
-  if (tool === "read") {
+  if (tool === "read" || tool === "write") {
     const path = firstString(part.input, ["path", "filePath", "filepath", "file", "target_file"])
     if (path) return { title: label, subtitle: filename(path), path }
   }

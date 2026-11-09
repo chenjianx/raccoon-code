@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises"
 import * as nodePath from "node:path"
 import { applyEdits, modify, parse as parseJsonc, type ParseError } from "jsonc-parser/lib/esm/main.js"
 import type { AgentInfo, ConfigEntry, FormFields, OpenCodeClient } from "@opencode/client/promise"
+import { isProviderNotFoundError } from "@opencode/client/promise"
 import type {
   ChatMode,
   ExtensionToWebview,
@@ -44,6 +45,7 @@ type OpencodeAgentConfig = NonNullable<Extract<ConfigEntry, { type: "document" }
 
 export class RaccoonProviderConfig {
   private disabledModels = new Set<string>()
+  private resetModelPreferences: boolean
   private selectedModel?: ModelSelection
   private modeModels: Partial<Record<ChatMode, ModelSelection>> = {}
   private providerAuthMethods: Record<string, RaccoonProviderAuthMethod[]> = {}
@@ -55,7 +57,9 @@ export class RaccoonProviderConfig {
   private readonly modelState: ModelStateStore
 
   constructor(private readonly deps: ProviderConfigDeps) {
-    this.disabledModels = new Set(deps.storage?.get<string[]>("raccoon.disabledModels", []) ?? [])
+    const disabledModels = deps.storage?.get<string[]>("raccoon.disabledModels")
+    this.disabledModels = new Set(disabledModels ?? [])
+    this.resetModelPreferences = disabledModels === undefined
     this.selectedModel = deps.getState().selectedModel
     this.modeModels = modeModelSelections(deps.storage?.get("raccoon.modeModels"))
     this.pluginLanguageMode = normalizePluginLanguageMode(deps.storage?.get<string>("raccoon.pluginLanguage"))
@@ -85,15 +89,14 @@ export class RaccoonProviderConfig {
     if (selectedModel && enabledModels.some((model) => modelKey(model) === modelKey(selectedModel))) {
       return selectedModel
     }
-    // No model has been explicitly configured (no persisted `selectedModel`). When Raccoon is
-    // logged in its models are connected, so prefer Raccoon here — its server default, else any
-    // Raccoon model. This keeps the default on Raccoon after a silent token refresh / webview
-    // reload (which never fires `raccoonLoginFinished`), matching the login behavior. An explicit
-    // non-Raccoon choice is preserved by the `selectedModel` branch above.
+    // With no available saved selection, prefer Raccoon Pro across token refreshes and webview reloads.
+    // An explicit non-Raccoon choice is preserved by the selectedModel branch above.
     const raccoonModels = enabledModels.filter((model) => model.providerID === "raccoon")
     const firstRaccoon = raccoonModels[0]
     if (firstRaccoon) {
-      const raccoonDefault = raccoonModels.find((model) => defaults["raccoon"] === model.modelID) ?? firstRaccoon
+      const raccoonDefault = raccoonModels.find((model) => model.modelID === "raccoon-pro-chat")
+        ?? raccoonModels.find((model) => defaults["raccoon"] === model.modelID)
+        ?? firstRaccoon
       return { providerID: raccoonDefault.providerID, modelID: raccoonDefault.modelID }
     }
     const defaultModel = enabledModels.find((model) => defaults[model.providerID] === model.modelID)
@@ -150,7 +153,24 @@ export class RaccoonProviderConfig {
       if (!provider.integrationID) return
       this.providerAuthMethods[provider.id] = this.providerAuthMethods[provider.integrationID] ?? []
     })
+    const raccoonLoggedIn = integrationResponse.data.some((entry) => entry.id === "raccoon" && entry.connections.some((connection) => connection.type === "credential" && connection.method === "oauth"))
+    const defaults = defaultResponse.data ? { [defaultResponse.data.providerID]: defaultResponse.data.id } : {}
+    const resetModels = this.resetModelPreferences && raccoonLoggedIn && mapProviderModels(
+      modelResponse.data, visibleProviders, integrationResponse.data, new Set(),
+    ).some((model) => model.providerID === "raccoon" && model.modelID.startsWith("raccoon") && model.enabled && model.connected)
+    if (resetModels) {
+      this.disabledModels = new Set(modelResponse.data
+        .filter((model) => model.providerID !== "raccoon" || !model.id.startsWith("raccoon"))
+        .map((model) => modelKey({ providerID: model.providerID, modelID: model.id })))
+    }
     const models = mapProviderModels(modelResponse.data, visibleProviders, integrationResponse.data, this.disabledModels)
+    if (resetModels) {
+      this.selectedModel = undefined
+      this.selectedModel = this.resolveDefaultModel(models, defaults)
+      await this.modelState.write(active, { selected: this.selectedModel, model: this.modeModels })
+      await this.deps.storage?.update("raccoon.disabledModels", [...this.disabledModels])
+      this.resetModelPreferences = false
+    }
     const providers = mapProviders(visibleProviders, integrationResponse.data, models)
     const globalRoot = configEntries.find((entry) => entry.type === "directory")?.path
     const documents = configEntries.filter((entry) => entry.type === "document")
@@ -188,8 +208,6 @@ export class RaccoonProviderConfig {
       collectCommands(active, this.deps.directory(), "project").catch(() => []),
       collectCommands(active, this.deps.directory(), "user").catch(() => []),
     ])
-    const raccoonLoggedIn = integrationResponse.data.some((entry) => entry.id === "raccoon" && entry.connections.some((connection) => connection.type === "credential" && connection.method === "oauth"))
-    const defaults = defaultResponse.data ? { [defaultResponse.data.providerID]: defaultResponse.data.id } : {}
     this.deps.setState({
       ...this.deps.getState(),
       models,
@@ -350,8 +368,12 @@ export class RaccoonProviderConfig {
       const client = await this.deps.client()
       if (cancelled()) return
       const location = { directory: this.deps.directory() }
-      const provider = await client.provider.get({ providerID: message.providerID, location })
-      const integration = await client.integration.get({ integrationID: provider.data.integrationID ?? message.providerID, location })
+      // Policies can remove a provider while its integration still supports connecting.
+      const provider = await client.provider.get({ providerID: message.providerID, location }).catch((error: unknown) => {
+        if (isProviderNotFoundError(error)) return undefined
+        throw error
+      })
+      const integration = await client.integration.get({ integrationID: provider?.data.integrationID ?? message.providerID, location })
       const authMethods = integration.data.methods.filter((method) => method.type === "oauth" || method.type === "key")
       const methodIndex = message.methodIndex ?? 0
       const method = authMethods[methodIndex]
@@ -490,6 +512,7 @@ export class RaccoonProviderConfig {
         }
         if (!this.raccoonLoginTokens.isCurrent(undefined, token)) return
         await client.location.reload()
+        this.resetModelPreferences = true
         await this.deps.refresh()
         if (!this.raccoonLoginTokens.isCurrent(undefined, token)) return
         this.deps.webviewHost.post(source, { type: "raccoonLoginFinished" } satisfies ExtensionToWebview)

@@ -16,6 +16,7 @@ import { SettingsActions } from "./settings-actions"
 import { SettingsAgents } from "./settings-agents"
 import { SettingsAutocomplete } from "./settings-autocomplete"
 import { SettingsCommands } from "./settings-commands"
+import { Select } from "./settings-common"
 import { SettingsRules } from "./settings-rules"
 import { SettingsLanguage } from "./settings-language"
 import { SettingsMcp } from "./settings-mcp"
@@ -36,6 +37,17 @@ export const SettingsView = memo(function SettingsView(props: { onClose?: () => 
   const [tab, setTab] = useState<
     "models" | "agents" | "commands" | "rules" | "providers" | "mcp" | "skills" | "language" | "autocomplete"
   >("providers")
+  const tabs = [
+    { value: "providers", label: language.t("settings.nav.providers"), icon: Cloud },
+    { value: "models", label: language.t("settings.nav.models"), icon: SlidersHorizontal },
+    { value: "agents", label: language.t("settings.nav.agents"), icon: Robot },
+    { value: "mcp", label: language.t("settings.nav.mcp"), icon: Plugs },
+    { value: "skills", label: language.t("settings.nav.skills"), icon: FileText },
+    { value: "commands", label: language.t("settings.nav.commands"), icon: TerminalWindow },
+    { value: "rules", label: language.t("settings.nav.rules"), icon: Scroll },
+    { value: "language", label: language.t("settings.nav.language"), icon: Translate },
+    { value: "autocomplete", label: language.t("settings.nav.autocomplete"), icon: MagicWand },
+  ] as const
   const [draftPluginLanguageMode, setDraftPluginLanguageMode] = useState(config.pluginLanguageMode ?? "auto")
   const [draftSelectedModel, setDraftSelectedModel] = useState<ModelSelection | undefined>(config.defaultModel)
   const [draftModeModels, setDraftModeModels] = useState<Partial<Record<string, ModelSelection>>>(
@@ -134,110 +146,38 @@ export const SettingsView = memo(function SettingsView(props: { onClose?: () => 
 
       <div className="settings-shell">
         <nav className="settings-nav" aria-label={language.t("settings.nav.label")}>
-          <button
-            type="button"
-            className={`settings-nav-item ${tab === "providers" ? "active" : ""}`}
-            onClick={() => setTab("providers")}
-            title={language.t("settings.nav.providers")}
-          >
-            <span className="settings-nav-icon">
-              <Cloud size={16} weight="bold" />
-            </span>
-            <span className="settings-nav-label">{language.t("settings.nav.providers")}</span>
-          </button>
-          <button
-            type="button"
-            className={`settings-nav-item ${tab === "models" ? "active" : ""}`}
-            onClick={() => setTab("models")}
-            title={language.t("settings.nav.models")}
-          >
-            <span className="settings-nav-icon">
-              <SlidersHorizontal size={16} weight="bold" />
-            </span>
-            <span className="settings-nav-label">{language.t("settings.nav.models")}</span>
-          </button>
-          <button
-            type="button"
-            className={`settings-nav-item ${tab === "agents" ? "active" : ""}`}
-            onClick={() => setTab("agents")}
-            title={language.t("settings.nav.agents")}
-          >
-            <span className="settings-nav-icon">
-              <Robot size={16} weight="bold" />
-            </span>
-            <span className="settings-nav-label">{language.t("settings.nav.agents")}</span>
-          </button>
-          <button
-            type="button"
-            className={`settings-nav-item ${tab === "mcp" ? "active" : ""}`}
-            onClick={() => setTab("mcp")}
-            title={language.t("settings.nav.mcp")}
-          >
-            <span className="settings-nav-icon">
-              <Plugs size={16} weight="bold" />
-            </span>
-            <span className="settings-nav-label">{language.t("settings.nav.mcp")}</span>
-          </button>
-          <button
-            type="button"
-            className={`settings-nav-item ${tab === "skills" ? "active" : ""}`}
-            onClick={() => setTab("skills")}
-            title={language.t("settings.nav.skills")}
-          >
-            <span className="settings-nav-icon">
-              <FileText size={16} weight="bold" />
-            </span>
-            <span className="settings-nav-label">{language.t("settings.nav.skills")}</span>
-          </button>
-          <button
-            type="button"
-            className={`settings-nav-item ${tab === "commands" ? "active" : ""}`}
-            onClick={() => setTab("commands")}
-            title={language.t("settings.nav.commands")}
-          >
-            <span className="settings-nav-icon">
-              <TerminalWindow size={16} weight="bold" />
-            </span>
-            <span className="settings-nav-label">{language.t("settings.nav.commands")}</span>
-          </button>
-          <button
-            type="button"
-            className={`settings-nav-item ${tab === "rules" ? "active" : ""}`}
-            onClick={() => setTab("rules")}
-            title={language.t("settings.nav.rules")}
-          >
-            <span className="settings-nav-icon">
-              <Scroll size={16} weight="bold" />
-            </span>
-            <span className="settings-nav-label">{language.t("settings.nav.rules")}</span>
-          </button>
-          <button
-            type="button"
-            className={`settings-nav-item ${tab === "language" ? "active" : ""}`}
-            onClick={() => setTab("language")}
-            title={language.t("settings.nav.language")}
-          >
-            <span className="settings-nav-icon">
-              <Translate size={16} weight="bold" />
-            </span>
-            <span className="settings-nav-label">{language.t("settings.nav.language")}</span>
-          </button>
-          <button
-            type="button"
-            className={`settings-nav-item ${tab === "autocomplete" ? "active" : ""}`}
-            onClick={() => setTab("autocomplete")}
-            title={language.t("settings.nav.autocomplete")}
-          >
-            <span className="settings-nav-icon">
-              <MagicWand size={16} weight="bold" />
-            </span>
-            <span className="settings-nav-label">{language.t("settings.nav.autocomplete")}</span>
-          </button>
+          {tabs.map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              className={`settings-nav-item ${tab === item.value ? "active" : ""}`}
+              onClick={() => setTab(item.value)}
+              title={item.label}
+              aria-current={tab === item.value ? "page" : undefined}
+            >
+              <span className="settings-nav-icon">
+                <item.icon size={16} weight="bold" />
+              </span>
+              <span className="settings-nav-label">{item.label}</span>
+            </button>
+          ))}
         </nav>
+
+        <div className="settings-mobile-nav">
+          <Select
+            value={tab}
+            options={tabs.map((item) => ({ value: item.value, label: item.label }))}
+            ariaLabel={language.t("settings.nav.label")}
+            onChange={(value) => {
+              const selected = tabs.find((item) => item.value === value)
+              if (selected) setTab(selected.value)
+            }}
+          />
+        </div>
 
         <div className="settings-content">
           <div
-            className={`settings-content-inner ${tab === "rules" || tab === "commands" || tab === "mcp" || tab === "skills" ? "h-full" : "min-h-full"}${tab === "rules" ? " settings-content-inner-rules" : ""}`}
+            className={`settings-content-inner ${tab === "rules" || tab === "commands" || tab === "mcp" || tab === "skills" || tab === "agents" ? "h-full" : "min-h-full"}${tab === "rules" ? " settings-content-inner-rules" : tab === "agents" ? " settings-content-inner-agents" : ""}`}
           >
             {tab === "models" ? (
               <SettingsModels

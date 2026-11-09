@@ -1,7 +1,7 @@
 plugins {
   id("java")
-  id("org.jetbrains.kotlin.jvm") version "2.1.0"
-  id("org.jetbrains.intellij.platform") version "2.2.1"
+  id("org.jetbrains.kotlin.jvm") version "2.3.20"
+  id("org.jetbrains.intellij.platform") version "2.19.0"
 }
 
 group = "ai.opencode"
@@ -18,11 +18,11 @@ dependencies {
   testImplementation(kotlin("test"))
 
   intellijPlatform {
-    // Community edition is enough — we only need the platform + JCEF.
-    intellijIdeaCommunity("2024.2")
+    // Compile against the oldest supported unified IDEA, in both free and Ultimate modes.
+    intellijIdea("2026.1")
     bundledPlugin("com.intellij.java")
-    bundledPlugin("org.jetbrains.kotlin")
     bundledPlugin("org.jetbrains.plugins.terminal")
+    bundledPlugin("com.intellij.modules.jcef")
     testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Platform)
     testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Plugin.Java)
   }
@@ -31,17 +31,21 @@ dependencies {
 intellijPlatform {
   pluginConfiguration {
     ideaVersion {
-      sinceBuild = "242"
-      untilBuild = provider { null }
+      sinceBuild = "261"
+      untilBuild = "262.*"
+    }
+  }
+  pluginVerification {
+    ides {
+      current()
+      create(org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.IntellijIdeaUltimate, "2026.2")
+      create(org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.IntellijIdeaUltimate, "2026.2.4")
     }
   }
 }
 
-// IntelliJ Platform 2024.2 advises Java 21, but the only JDK registered here is 17 and Gradle
-// 8.13 can't run on JDK 25. 17 bytecode loads fine in the 21 runtime, so we build with 17 and
-// accept the verifier's advisory warning for this MVP.
 kotlin {
-  jvmToolchain(17)
+  jvmToolchain(21)
 }
 
 tasks {

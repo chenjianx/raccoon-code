@@ -1,4 +1,4 @@
-import type { FormInfo, OpenCodeClient, SessionInfo, SessionMessageInfo } from "@opencode/client/promise"
+import type { FormInfo, OpenCodeClient, OpenCodeEvent, SessionInfo, SessionMessageInfo } from "@opencode/client/promise"
 import type {
   ChatMode,
   ExtensionToWebview,
@@ -63,6 +63,7 @@ export class RaccoonSessionController {
   private subAgentViewGeneration = 0
   private subAgentLoad?: SubAgentLoad
   private readonly subAgentEvents = new Map<string, ExtensionToWebview[]>()
+  private readonly toolProgress = new Map<string, Extract<OpenCodeEvent, { type: "session.tool.progress" }>["data"]>()
   private openSubAgentSessionID?: string
   private openSubAgentTitle?: string
   private readonly pendingOptimisticMessages = new Set<string>()
@@ -252,7 +253,7 @@ export class RaccoonSessionController {
     ])
     // Discard stale responses: a newer loadMessages has superseded this one.
     if (generation !== this.loadGeneration) return
-    const messages = response.data
+    const messages = this.withToolProgress(sessionID, response.data)
       .flatMap((message) => mapMessage(message))
       .filter((message) => message.text.trim() || message.parts.length > 0)
     const responseCursor = nextMessageCursor(response)
@@ -298,6 +299,10 @@ export class RaccoonSessionController {
         // Empty placeholders still need deltas received during this request.
         const parts = [
           ...message.parts.map((part) => {
+            if (part.type === "tool" && part.status === "running") {
+              const progress = this.toolProgress.get(`${sessionID}:${message.id}:${part.id}`)
+              return progress ? { ...part, metadata: progress.metadata } : part
+            }
             if ((part.type !== "text" && part.type !== "reasoning") || part.text) return part
             const streamed = live.parts.find((item) => item.id === part.id)
             return streamed ? { ...part, text: streamed.text } : part
@@ -347,7 +352,7 @@ export class RaccoonSessionController {
     try {
       const response = await (await this.deps.client()).message.list({ sessionID, limit: 200, cursor })
       if (this.deps.getState().activeSessionID !== sessionID || generation !== this.olderMessagesGeneration) return
-      const older = response.data
+      const older = this.withToolProgress(sessionID, response.data)
         .flatMap((message) => mapMessage(message))
         .filter((message) => message.text.trim() || message.parts.length > 0)
       const current = this.deps.getState()
@@ -809,6 +814,32 @@ export class RaccoonSessionController {
     return this.openSubAgentSessionID === sessionID
   }
 
+  recordToolProgress(data: Extract<OpenCodeEvent, { type: "session.tool.progress" }>["data"]) {
+    this.toolProgress.set(`${data.sessionID}:${data.assistantMessageID}:${data.id}`, data)
+  }
+
+  // Progress is live-only; HTTP snapshots of running calls still contain empty metadata.
+  private withToolProgress(sessionID: string, messages: SessionMessageInfo[]) {
+    return messages.map((message) => {
+      if (message.type !== "assistant") return message
+      return {
+        ...message,
+        content: message.content.map((part) => {
+          if (part.type !== "tool") return part
+          const key = `${sessionID}:${message.id}:${part.id}`
+          if (part.state.status === "completed" || part.state.status === "error") {
+            this.toolProgress.delete(key)
+            return part
+          }
+          const progress = this.toolProgress.get(key)
+          return part.state.status === "running" && progress
+            ? { ...part, state: { ...part.state, metadata: progress.metadata } }
+            : part
+        }),
+      }
+    })
+  }
+
   isTrackedSubAgent(sessionID: string) {
     if (this.isOpenSubAgent(sessionID)) return true
     const state = this.deps.getState()
@@ -828,13 +859,19 @@ export class RaccoonSessionController {
     )
       return true
 
-    const sessions = new Map(state.sessions.map((session) => [session.id, session]))
+    const parents = new Map(state.sessions.map((session) => [session.id, session.parentID]))
+    this.toolProgress.forEach((progress) => {
+      const childID = progress.metadata.sessionID ?? progress.metadata.sessionId
+      if (typeof childID === "string") parents.set(childID, progress.sessionID)
+    })
     const seen = new Set<string>()
-    let current = sessions.get(sessionID)
-    while (current?.parentID && !seen.has(current.id)) {
-      if (current.parentID === activeSessionID) return true
-      seen.add(current.id)
-      current = sessions.get(current.parentID)
+    let current = sessionID
+    while (parents.has(current) && !seen.has(current)) {
+      const parentID = parents.get(current)
+      if (parentID === activeSessionID) return true
+      if (!parentID) return false
+      seen.add(current)
+      current = parentID
     }
     return false
   }
@@ -894,7 +931,7 @@ export class RaccoonSessionController {
     ])
     return {
       messages: sortMessages(
-        response.data
+        this.withToolProgress(sessionID, response.data)
           .flatMap((message) => mapMessage(message))
           .filter((message) => message.text.trim() || message.parts.length > 0),
       ),
@@ -1006,6 +1043,7 @@ export class RaccoonSessionController {
   }
 
   dispose() {
+    this.toolProgress.clear()
     this.clearEventRefreshTimer()
     this.clearSubAgentRefresh()
     if (this.promptRefreshTimer) clearTimeout(this.promptRefreshTimer)
@@ -1029,7 +1067,7 @@ export class RaccoonSessionController {
       [...ids].map(async (childID) => {
         try {
           const response = await client.message.list({ sessionID: childID, limit: 200, order: "desc" })
-          return [childID, mapSubSession(childID, response.data, status[childID]?.type ?? "idle")] as const
+          return [childID, mapSubSession(childID, this.withToolProgress(childID, response.data), status[childID]?.type ?? "idle")] as const
         } catch (error) {
           this.deps.log(`sub-session load failed (${childID}): ${error instanceof Error ? error.message : String(error)}`)
           return undefined
