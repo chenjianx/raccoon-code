@@ -1,11 +1,12 @@
 export * as Media from "./media.js"
 
-import { Effect, Encoding, FileSystem, Schema, SchemaGetter } from "effect"
-import { HttpClientRequest } from "effect/unstable/http"
+import { Effect, FileSystem, Result, Schema, SchemaGetter } from "effect"
+import { Base64 } from "effect/encoding"
+import { HttpClientRequest } from "effect/http"
 import { ProviderID } from "./schema/ids.js"
-import { AIError, HttpContext, InvalidProviderOutputError, InvalidRequestError } from "./schema/errors.js"
+import { AIError, InvalidProviderOutputError, InvalidRequestError } from "./schema/errors.js"
 import { ProviderMetadata } from "./schema/options.js"
-import { Service } from "./route/executor-service.js"
+import { responseHttp, Service } from "./route/executor-service.js"
 import { detectMediaType, fileMediaType } from "./utils/media-type.js"
 
 export { detectMediaType } from "./utils/media-type.js"
@@ -50,7 +51,7 @@ export const Source = Schema.Union([BytesSource, Base64Source, UrlSource, RefSou
 export type Source = Schema.Schema.Type<typeof Source>
 
 // ---------------------------------------------------------------------------
-// Kind, Info, Notice
+// Kind, Info
 // ---------------------------------------------------------------------------
 
 export type AspectRatio = `${number}:${number}`
@@ -82,14 +83,6 @@ export const Info = Schema.Struct({
   format: Schema.optional(Schema.String),
 }).annotate({ identifier: "Media.Info" })
 export type Info = Schema.Schema.Type<typeof Info>
-
-/** A provider-side partial result such as stripped audio or a moderated sample; never a silent drop. */
-export const Notice = Schema.Struct({
-  type: Schema.Literals(["moderated", "filtered", "other"]),
-  message: Schema.String,
-  providerMetadata: Schema.optional(ProviderMetadata),
-}).annotate({ identifier: "Media.Notice" })
-export type Notice = Schema.Schema.Type<typeof Notice>
 
 // ---------------------------------------------------------------------------
 // Asset
@@ -140,7 +133,7 @@ export class Asset {
   inline(): Inline | undefined {
     const source = this.source
     if (source.type !== "bytes" && source.type !== "base64") return undefined
-    const base64 = source.type === "base64" ? source.data : (this.#base64 ??= Encoding.encodeBase64(source.data))
+    const base64 = source.type === "base64" ? source.data : (this.#base64 ??= Base64.encode(source.data))
     const mime = this.mediaType.toLowerCase()
     return { mime, base64, dataUrl: `data:${mime};base64,${base64}` }
   }
@@ -155,7 +148,7 @@ export class Asset {
         return Effect.fail(invalid(`Cannot materialize provider ref ${source.provider}:${source.id}`))
       const decoded =
         source.type === "base64"
-          ? Effect.fromResult(Encoding.decodeBase64(source.data)).pipe(
+          ? Effect.fromResult(Base64.decode(source.data)).pipe(
               Effect.mapError((cause) => invalid(`Media asset contains invalid base64 data`, cause)),
             )
           : download(source, this.headers)
@@ -168,7 +161,7 @@ export class Asset {
       const source = this.source
       if (source.type === "base64") return Effect.succeed(source.data)
       if (this.#base64 !== undefined) return Effect.succeed(this.#base64)
-      return this.bytes().pipe(Effect.map((data) => (this.#base64 = Encoding.encodeBase64(data))))
+      return this.bytes().pipe(Effect.map((data) => (this.#base64 = Base64.encode(data))))
     })
   }
 
@@ -183,7 +176,7 @@ export class Asset {
   toJSON() {
     const source = this.source
     return {
-      source: source.type === "bytes" ? { ...source, data: Encoding.encodeBase64(source.data) } : source,
+      source: source.type === "bytes" ? { ...source, data: Base64.encode(source.data) } : source,
       info: this.info,
       providerMetadata: this.providerMetadata,
     }
@@ -253,7 +246,7 @@ const download = Effect.fn("Media.download")(function* (
         new AIError({
           reason: new InvalidProviderOutputError({
             message: `Failed to read media from ${source.url}`,
-            http: new HttpContext({ url: response.request.url, status: response.status, headers: response.headers }),
+            http: responseHttp(response),
             cause,
           }),
         }),
@@ -287,7 +280,7 @@ export const url = (
 export const ref = (provider: string | ProviderID, id: string, mediaType?: string, options?: AssetOptions) =>
   from({ type: "ref", provider: ProviderID.make(provider), id, mediaType }, options)
 
-const DATA_URL = /^data:([^;,]+)(?:;[^,]*)*;base64,(.*)$/s
+const DATA_URL = /^data:([^;,]+)(?:;[^,]*)*;base64,(.*)$/is
 
 /** Parse a `data:<mime>;base64,<data>` URL, or `undefined` when the value is not a base64 data URL. */
 export const parseDataUrl = (value: string, options?: AssetOptions) => {
@@ -300,6 +293,45 @@ export const fromDataUrl = (dataUrl: string, options?: AssetOptions) => {
   const asset = parseDataUrl(dataUrl, options)
   if (asset === undefined) throw invalid("Media data URLs must contain a MIME type and base64 data")
   return asset
+}
+
+/** Plain file data: bytes, a URL, or a string holding a data URL, an http(s) URL or base64. */
+export type Data = Uint8Array | ArrayBuffer | URL | string
+
+/** What file inputs accept: an `Asset` or plain `Data`. */
+export type Input = Asset | Data
+
+/**
+ * Normalize file input into an `Asset`. Data URLs carry their media type and bytes or base64 are sniffed from magic
+ * bytes; `mediaType` is required when sniffing fails. Assets pass through unchanged.
+ */
+export const make = (input: Input, mediaType?: string): Asset => {
+  if (input instanceof Asset) return input
+  if (input instanceof ArrayBuffer) return make(new Uint8Array(input), mediaType)
+  if (input instanceof Uint8Array) return bytes(input, mediaType ?? requireMediaType(detectMediaType(input)))
+  const value = input instanceof URL ? input.href : input
+  if (/^data:/i.test(value)) {
+    const match = DATA_URL.exec(value)
+    if (match === null) throw invalid("Media data URLs must contain a MIME type and base64 data")
+    return base64(match[2], mediaType ?? match[1])
+  }
+  if (input instanceof URL || /^https?:\/\//i.test(value)) return url(value, { mediaType })
+  if (!BASE64.test(value))
+    throw invalid("Media strings must be base64, a data URL or an http(s) URL; read files with Media.file")
+  return base64(value, mediaType ?? requireMediaType(sniffBase64(value)))
+}
+
+const BASE64 = /^[A-Za-z0-9+/\-_\s]*={0,2}\s*$/
+
+// 64 characters decode to 48 bytes, enough for every signature `detectMediaType` reads.
+const sniffBase64 = (value: string) => {
+  const head = Result.getOrUndefined(Base64.decode(value.slice(0, 64)))
+  return head === undefined ? undefined : detectMediaType(head)
+}
+
+const requireMediaType = (detected: string | undefined) => {
+  if (detected === undefined) throw invalid("Media data needs a mediaType because its type cannot be detected")
+  return detected
 }
 
 /** Read a file through `FileSystem` and sniff its media type from magic bytes, then the extension. */

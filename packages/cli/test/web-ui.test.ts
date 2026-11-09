@@ -2,7 +2,7 @@ import { NodeFileSystem, NodeHttpServer } from "@effect/platform-node"
 import { ServerProcess } from "@opencode/server/process"
 import { afterAll, describe, expect, test } from "bun:test"
 import { Effect } from "effect"
-import { HttpServer, HttpServerError, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
+import { HttpServer, HttpServerError, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { createServer } from "node:http"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -217,6 +217,8 @@ describe("web UI", () => {
           expect(fallback.headers.get("content-security-policy")).toContain("default-src 'self'")
           expect(fallback.headers.get("content-security-policy")).toContain("connect-src * data: blob:")
           expect(fallback.headers.get("content-security-policy")).toContain("worker-src 'self' blob:")
+          expect(fallback.headers.get("content-security-policy")).toContain("frame-src 'self' blob:")
+          expect(fallback.headers.get("content-security-policy")).toContain("object-src 'self' blob:")
 
           const dotted = yield* Effect.promise(() => fetch(`${origin}/workspace/example.js`))
           expect(dotted.status).toBe(200)

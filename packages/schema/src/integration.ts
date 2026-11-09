@@ -82,6 +82,7 @@ export interface Info extends Schema.Schema.Type<typeof Info> {}
 
 export const AttemptID = Schema.String.pipe(
   Schema.brand("Integration.AttemptID"),
+  Schema.annotate({ identifier: "Integration.AttemptID" }),
   statics((schema) => ({ create: () => schema.make("con_" + ascending()) })),
 )
 export type AttemptID = typeof AttemptID.Type
@@ -96,6 +97,8 @@ export class Attempt extends Schema.Class<Attempt>("Integration.Attempt")({
   url: Schema.String,
   instructions: Schema.String,
   mode: Schema.Literals(["auto", "code"]),
+  /** An `auto` attempt also accepts the redirect URL pasted from the browser as its `code`. */
+  paste: Schema.optionalKey(Schema.Literal(true)),
   time: AttemptTime,
 }) {}
 

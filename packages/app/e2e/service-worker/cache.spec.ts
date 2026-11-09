@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test"
+import { chromium, expect, test, type Page } from "@playwright/test"
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { createServer, type ServerResponse } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -9,6 +9,11 @@ import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
 import { build } from "vite"
 import { onDemandAsset, serviceWorker } from "../../vite.pwa"
+
+// The updater the web app ships (Settings › Updates and the titlebar), built into the fixture pages.
+const updaterDriver = fileURLToPath(
+  new URL("../../../gui-plugins/src/updater/web-driver.ts", import.meta.url),
+).replaceAll("\\", "/")
 
 type Site = {
   url: string
@@ -35,7 +40,20 @@ const fixture = test.extend<{ site: Site }, { builds: Record<string, Record<stri
               "main.js": `document.querySelector("h1").textContent = "${version}";
             document.querySelector("button").onclick = async () => {
               document.querySelector("output").textContent = await (await import("./lazy.js")).load()
-            };`,
+            };
+            // ?updater runs the web app's real update driver, with its actions as buttons.
+            if (location.search.includes("updater")) import(${JSON.stringify(updaterDriver)}).then(({ startWebUpdater }) => {
+              const state = Object.assign(document.createElement("p"), { ariaLabel: "Update state" });
+              const announced = Object.assign(document.createElement("p"), { ariaLabel: "Update offered" });
+              const updater = startWebUpdater({
+                changed: (next) => (state.textContent = next.status),
+                announce: () => (announced.textContent = "yes"),
+                report: () => {},
+              });
+              state.textContent = updater.state().status;
+              const action = (name, run) => Object.assign(document.createElement("button"), { textContent: name, onclick: run });
+              document.body.append(state, announced, action("Check for updates", updater.check), action("Update now", updater.apply), action("Reload from server", updater.reset));
+            });`,
               "lazy.js": `export async function load() { return (await import("./nested.js")).value }`,
               "nested.js": `export const value = "${version} nested lazy loaded"`,
               "public/nested/data.json": JSON.stringify({ version }),
@@ -286,7 +304,9 @@ fixture(
         replacement.evaluate(() => {
           // This runs in the service worker, whose global scope holds its registration.
           const registration =
-            "registration" in self && self.registration instanceof ServiceWorkerRegistration ? self.registration : undefined
+            "registration" in self && self.registration instanceof ServiceWorkerRegistration
+              ? self.registration
+              : undefined
 
           return { waiting: !!registration?.waiting, active: registration?.active?.state }
         }),
@@ -298,6 +318,63 @@ fixture(
     await expect(observer.getByRole("heading")).toHaveText("new")
     await observer.getByRole("button", { name: "Load lazy" }).click()
     await expect(observer.getByRole("status")).toHaveText("new nested lazy loaded")
+  },
+)
+
+fixture(
+  "the updater offers a new build and moves every open tab to it with one click",
+  async ({ page, context, site }) => {
+    await install(page, `${site.url}/?updater`)
+    await expect(page.getByLabel("Update state")).toHaveText("idle")
+    const second = await context.newPage()
+    await second.goto(`${site.url}/?updater`)
+    await expect(second.getByLabel("Update state")).toHaveText("idle")
+
+    site.deploy()
+    await page.getByRole("button", { name: "Check for updates" }).click()
+    await expect(page.getByLabel("Update state")).toHaveText("ready")
+    await expect(page.getByLabel("Update offered")).toHaveText("yes")
+    // Every tab hears about the download, not only the one that checked.
+    await expect(second.getByLabel("Update state")).toHaveText("ready")
+    // A tab opened while the build waits offers it at once; before, it waited for every tab to close.
+    const third = await context.newPage()
+    await third.goto(`${site.url}/?updater`)
+    await expect(third.getByRole("heading")).toHaveText("old")
+    await expect(third.getByLabel("Update state")).toHaveText("ready")
+
+    await second.getByRole("button", { name: "Update now" }).click()
+
+    for (const tab of [page, second, third]) {
+      await expect(tab.getByRole("heading")).toHaveText("new")
+      await expect(tab.getByLabel("Update state")).toHaveText("idle")
+    }
+
+    await page.getByRole("button", { name: "Load lazy" }).click()
+    await expect(page.getByRole("status")).toHaveText("new nested lazy loaded")
+  },
+)
+
+fixture(
+  "reload from server replaces a saved build that cannot update, in every open tab",
+  async ({ page, context, site }) => {
+    await install(page, `${site.url}/?updater`)
+    const second = await context.newPage()
+    await second.goto(`${site.url}/?updater`)
+    await expect(second.getByLabel("Update state")).toHaveText("idle")
+    site.deploy("failed")
+    await page.getByRole("button", { name: "Check for updates" }).click()
+    await expect(page.getByLabel("Update state")).toHaveText("error")
+    await page.reload()
+    await expect(page.getByRole("heading")).toHaveText("old")
+
+    await page.getByRole("button", { name: "Reload from server" }).click()
+    await expect(page.getByRole("heading")).toHaveText("new")
+    expect(await page.evaluate(() => navigator.serviceWorker.controller)).toBeNull()
+    expect(await page.evaluate(async () => (await caches.keys()).length)).toBe(0)
+    // The other tab's old lazy chunks went with the caches, so it reloads too instead of failing its next import.
+    await expect(second.getByRole("heading")).toHaveText("new")
+    await second.getByRole("button", { name: "Load lazy" }).click()
+    await expect(second.getByRole("status")).toHaveText("new nested lazy loaded")
   },
 )
 
@@ -449,6 +526,47 @@ test("the production build precaches every deployable file except on-demand Offi
     expect(response?.fromServiceWorker()).toBe(true)
     expect(await response?.text()).toBe(await readFile(new URL("index.html", directory), "utf8"))
   } finally {
+    server.closeAllConnections()
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
+  }
+})
+
+test("the production build installs as an app behind an authenticating proxy", async () => {
+  const directory = new URL("../../dist/", import.meta.url)
+
+  const server = createServer(async (request, response) => {
+    // Model a reverse proxy that rejects every request without the signed-in user's cookie.
+    if (!request.headers.cookie?.includes("session=signed-in")) return void response.writeHead(401).end()
+    const path = new URL(request.url ?? "/", "http://localhost").pathname
+    const file = extname(path) ? path : "/index.html"
+    const bytes = await readFile(new URL(`.${file}`, directory)).catch(() => undefined)
+
+    if (!bytes) return void response.writeHead(404).end("Not found")
+
+    // Check the real HTML without starting the app or its service worker.
+    if (file === "/index.html")
+      response.writeHead(200, { "content-type": "text/html", "content-security-policy": "script-src 'none'" })
+
+    response.end(bytes)
+  })
+
+  server.listen(0, "127.0.0.1")
+  await once(server, "listening")
+  // SAFETY: a server listening on a host and port reports an AddressInfo; only pipe servers report a string.
+  const address = server.address() as AddressInfo
+  const url = `http://127.0.0.1:${address.port}`
+  // Chrome Headless Shell has no install checks and reports no errors for any page, and an incognito context always
+  // reports one, so check in a persistent Chrome profile.
+  const context = await chromium.launchPersistentContext("", { channel: "chromium" })
+
+  try {
+    await context.addCookies([{ name: "session", value: "signed-in", url }])
+    const page = await context.newPage()
+    await page.goto(url)
+    const session = await context.newCDPSession(page)
+    expect((await session.send("Page.getInstallabilityErrors")).installabilityErrors).toEqual([])
+  } finally {
+    await context.close()
     server.closeAllConnections()
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
   }

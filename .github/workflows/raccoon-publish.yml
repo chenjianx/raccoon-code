@@ -23,8 +23,6 @@ jobs:
     steps:
       - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
       - uses: ./.github/actions/setup-bun
-        with:
-          bun-version: 1.4.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '24'
@@ -35,17 +33,37 @@ jobs:
         env:
           OPENCODE_VERSION: ${{ inputs.version }}
           OPENCODE_CHANNEL: latest
-      - name: Pack or publish Raccoon npm packages
-        run: bun packages/cli/script/publish.ts --raccoon-only ${{ inputs.dry_run && '--dry-run' || '' }}
+      - name: Pack Raccoon npm packages
+        run: bun packages/cli/script/pack.ts --raccoon-only
         env:
           OPENCODE_VERSION: ${{ inputs.version }}
           OPENCODE_CHANNEL: latest
+      - name: Publish Raccoon npm packages
+        if: ${{ !inputs.dry_run }}
+        run: |
+          publish() {
+            local file="$1"
+            local name="${file##*/}"
+            name="${name%-${OPENCODE_VERSION}.tgz}"
+            if npm view "$name@$OPENCODE_VERSION" version > /dev/null 2>&1; then
+              echo "already published $name@$OPENCODE_VERSION"
+              return
+            fi
+            npm publish "$file" --access public --tag latest --ignore-scripts
+          }
+          for file in dist/npm/raccoon-*.tgz; do
+            if [[ "$file" == dist/npm/raccoon-code-cli-* ]]; then continue; fi
+            publish "$file"
+          done
+          publish dist/npm/raccoon-code-cli-*.tgz
+        env:
+          OPENCODE_VERSION: ${{ inputs.version }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: raccoon-cli-${{ inputs.version }}
           path: |
-            packages/cli/dist/raccoon/**/*.tgz
-            packages/cli/dist/raccoon/*.tar.gz
-            packages/cli/dist/raccoon/*.zip
+            dist/npm/raccoon-*.tgz
+            dist/archives/raccoon-*.tar.gz
+            dist/archives/raccoon-*.zip
             packages/cli/dist/raccoon/raccoon-release.json

@@ -3,18 +3,22 @@ export * as ServerProcess from "./process"
 import { NodeHttpServer } from "@effect/platform-node"
 import { Bus } from "@opencode/core/bus"
 import { SessionRestart } from "@opencode/core/session/execution/restart"
+import { Schedule } from "@opencode/core/schedule"
 import { InstallationEvent } from "@opencode/schema/installation-event"
 import { hasPtyConnectTicketURL } from "@opencode/protocol/groups/pty"
 import { hasPersistentPtyConnectTicketURL } from "@opencode/protocol/groups/persistent-pty"
+import { hasMcpClientTicketURL } from "@opencode/protocol/groups/mcp"
 import { isPairingConnectURL } from "@opencode/protocol/groups/server"
 import { Global } from "@opencode/util/global"
 import { Cause, Context, Effect, Exit, Latch, Layer, Option, Ref, Scope } from "effect"
-import { HttpMiddleware, HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
+import { HttpMiddleware, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
+import { NetAddress } from "effect/net"
 import { createServer } from "node:http"
 import { ServerAuth } from "./auth"
 import { isAllowedCorsOrigin } from "./cors"
 import { authorizedRequest, unauthorizedResponse } from "./middleware/authorization"
 import { withoutParentSpan } from "./request-tracing"
+import { RequestSite } from "./request-site"
 import { createRoutes } from "./routes"
 import { ServerInfo } from "./server-info"
 import { Status } from "./service-status"
@@ -22,7 +26,7 @@ import type { ServerOptions } from "./options"
 
 export interface Lifecycle<E = never, R = never> {
   readonly onListen: (
-    address: HttpServer.Address,
+    address: NetAddress.SocketAddress,
     shutdown: Effect.Effect<void>,
   ) => Effect.Effect<Effect.Effect<void>, E, R>
 }
@@ -69,6 +73,7 @@ export const start = Effect.fn("ServerProcess.start")(function* <E, R>(
   yield* bound.http
     .serve(
       (transform ? transform(app) : app).pipe(
+        RequestSite.middleware(options),
         HttpMiddleware.compression(),
         HttpMiddleware.cors({ allowedOrigins: (origin) => isAllowedCorsOrigin(origin, options), maxAge: 86_400 }),
       ),
@@ -92,6 +97,8 @@ export const start = Effect.fn("ServerProcess.start")(function* <E, R>(
     ),
   )
 
+  // Built without the startup span: route handlers and background fibers capture this context, and would
+  // otherwise nest every request and session turn for the life of the process under one trace.
   const boot = Effect.gen(function* () {
     const context = yield* Layer.buildWithScope(
       createRoutes(
@@ -108,6 +115,8 @@ export const start = Effect.fn("ServerProcess.start")(function* <E, R>(
         Effect.provideService(Scope.Scope, applicationScope),
       )
     }
+    // Schedules fire from any server process (`service`, `opencode serve`, or `--standalone`); the table holds all their state.
+    yield* Effect.forkIn(Context.get(context, Schedule.Service).run, applicationScope)
     yield* Ref.set(application, Option.some(Context.get(context, HttpRouter.HttpRouter).asHttpEffect()))
     yield* status.ready
     const bus = Context.get(context, Bus.Service)
@@ -119,6 +128,7 @@ export const start = Effect.fn("ServerProcess.start")(function* <E, R>(
       updated: (version: string) => bus.publish(InstallationEvent.Updated, { version }).pipe(Effect.asVoid),
     }
   }).pipe(
+    withoutParentSpan,
     Effect.catchCause((cause) => {
       if (!lifecycle || Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause)
       return status.fail.pipe(
@@ -190,7 +200,8 @@ function dispatch(
     }
     if (
       !isPairingConnectURL(url) &&
-      (!ready || (!hasPtyConnectTicketURL(url) && !hasPersistentPtyConnectTicketURL(url))) &&
+      (!ready ||
+        (!hasPtyConnectTicketURL(url) && !hasPersistentPtyConnectTicketURL(url) && !hasMcpClientTicketURL(url))) &&
       !(yield* authorizedRequest(request, auth))
     )
       return unauthorizedResponse(request)

@@ -1,6 +1,6 @@
 // raccoon_change start - verify native prompt branding only for the Raccoon host
 import { expect, test } from "bun:test"
-import { SystemPart } from "@opencode/ai"
+import { SystemPart } from "@opencode/ai/effect"
 import { Agent } from "@opencode/core/agent"
 import { Model } from "@opencode/core/model"
 import { Plugin } from "@opencode/core/plugin"
@@ -42,7 +42,7 @@ it.effect("brands the selected V2 model prompt after optimization", () =>
     const plugins = yield* Plugin.Service
     yield* agents.transform((editor) => editor.update(Agent.ID.make("build"), () => {}))
     yield* providers.transform((editor) => editor.models.update(Provider.ID.make("test"), Model.ID.make("gpt-5"), () => {}))
-    const host = { ...(yield* PluginHost.make(plugins)), app: { name: "raccoon", version: "test", channel: "test" } }
+    const host = { ...(yield* PluginHost.make(plugins, "test")), app: { name: "raccoon", version: "test", channel: "test" } }
     yield* OptimizePlugin.OpenAIPlugin.effect(host)
     yield* RaccoonPrompt.Plugin.effect(host)
     const event = {

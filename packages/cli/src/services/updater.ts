@@ -3,7 +3,7 @@ import { AppProcess } from "@opencode/util/process"
 import { EffectFlock } from "@opencode/util/effect-flock"
 import { OPENCODE_ARTIFACT, OPENCODE_CHANNEL, OPENCODE_LOCAL, OPENCODE_VERSION } from "../version"
 import { Context, Duration, Effect, FileSystem, Layer, Option, Ref, Schema } from "effect"
-import { ChildProcess } from "effect/unstable/process"
+import { ChildProcess } from "effect/process"
 import { parse, type ParseError } from "jsonc-parser"
 import path from "node:path"
 import { stripVTControlCharacters } from "node:util"
@@ -11,7 +11,7 @@ import { RetainedImage } from "./retained-image"
 import { action, parseReleaseVersion, type Policy } from "./updater-action"
 import { errorMessage } from "../util/error"
 
-export const methods = ["curl", "npm", "pnpm", "bun", "yarn", "vp", "brew"] as const
+export const methods = ["curl", "npm", "pnpm", "bun", "yarn", "vp", "brew", "winget"] as const
 
 export type Method = (typeof methods)[number]
 export type RunResult = { readonly type: "available" | "installed"; readonly version: string }
@@ -53,7 +53,19 @@ const installNames: Record<Method, string> = {
   yarn: "Yarn",
   vp: "Vite+",
   brew: "Homebrew",
+  winget: "WinGet",
 }
+
+const wingetPackage = "Anomaly.OpenCode"
+const wingetArgs = [
+  "--id",
+  wingetPackage,
+  "--exact",
+  "--source",
+  "winget",
+  "--accept-source-agreements",
+  "--disable-interactivity",
+]
 
 function conciseDetail(input: string) {
   const lines = stripVTControlCharacters(input)
@@ -153,6 +165,8 @@ const make = Effect.gen(function* () {
   const installedFormula = ["opencode", "opencode-beta", "opencode-v2"].find((name) =>
     executable.includes(`${path.sep}Cellar${path.sep}${name}${path.sep}`),
   )
+  // WinGet extracts portable packages into a directory named after the package identifier.
+  const installedWinget = /[\\/]winget[\\/]packages[\\/]anomaly\.opencode_/i.test(executable)
 
   const readPolicy = Effect.fnUntraced(function* () {
     // raccoon_change - read only the active product's update preferences
@@ -165,7 +179,7 @@ const make = Effect.gen(function* () {
     return values.findLast((value) => value !== undefined) ?? "notify"
   })
 
-  const exec = Effect.fnUntraced(function* (command: string[], timeout: Duration.Input = "10 seconds") {
+  const exec = Effect.fnUntraced(function* (command: string[], timeout: Duration.Input = "30 seconds") {
     return yield* appProcess
       .run(ChildProcess.make(command[0], command.slice(1)), {
         timeout,
@@ -181,7 +195,7 @@ const make = Effect.gen(function* () {
       )
   })
 
-  const curlBinary = path.resolve(
+  const curlPath = path.resolve(
     global.home,
     // raccoon_change - keep direct binary installations separate
     raccoon ? ".raccoon" : ".opencode",
@@ -189,6 +203,7 @@ const make = Effect.gen(function* () {
     // raccoon_change - detect the matching installed command
     process.platform === "win32" ? `${raccoon ? "raccoon" : "opencode"}.exe` : raccoon ? "raccoon" : "opencode",
   )
+  const curlBinary = yield* fs.realPath(curlPath).pipe(Effect.orElseSucceed(() => curlPath))
 
   // On Windows a bare `bash` may be the WSL launcher, which cannot run the installer against Windows paths.
   const installerBash = Effect.fnUntraced(function* () {
@@ -207,17 +222,20 @@ const make = Effect.gen(function* () {
   })
 
   const method = Effect.fnUntraced(function* () {
-    if (path.resolve(process.execPath) === curlBinary) return "curl"
+    if (executable === curlBinary) return "curl"
     if (!raccoon && installedFormula) return "brew"
+    if (!raccoon && installedWinget) return "winget"
     if (!installedPackage) return
 
-    const checks: ReadonlyArray<{ method: Method; command: string[] }> = [
+    const parts = executable.toLowerCase().split(path.sep).map((part) => part.replace(/^\./, ""))
+    const checks: Array<{ method: Method; command: string[] }> = [
       { method: "npm", command: ["npm", "list", "-g", "--depth=0", installedPackage] },
       { method: "pnpm", command: ["pnpm", "list", "-g", "--depth=0", installedPackage] },
       { method: "bun", command: ["bun", "pm", "ls", "-g"] },
       { method: "yarn", command: ["yarn", "global", "list"] },
       { method: "vp", command: ["vp", "list", "-g", "--json", installedPackage] },
     ]
+    checks.sort((a, b) => Number(parts.includes(b.method)) - Number(parts.includes(a.method)))
     const results = yield* Effect.forEach(
       checks,
       (check) =>
@@ -236,7 +254,8 @@ const make = Effect.gen(function* () {
     })?.check.method
   })
 
-  const removal = (method: Method) => {
+  const removalCommand = (method: Method) => {
+    if (method === "winget") return ["winget", "uninstall", ...wingetArgs]
     if (method === "curl" || method === "brew" || !installedPackage) return undefined
     const commands = {
       npm: ["npm", "uninstall", "--global", installedPackage],
@@ -245,7 +264,12 @@ const make = Effect.gen(function* () {
       yarn: ["yarn", "global", "remove", installedPackage],
       vp: ["vp", "uninstall", "-g", installedPackage],
     }
-    const command = commands[method]
+    return commands[method]
+  }
+
+  const removal = (method: Method) => {
+    const command = removalCommand(method)
+    if (!command) return undefined
     return {
       command,
       run: retaining(
@@ -343,10 +367,39 @@ const make = Effect.gen(function* () {
     return { package: packageName, version }
   })
 
+  // WinGet moderates every submission, so only its own index knows which release it can install.
+  const wingetVersion = Effect.fnUntraced(function* () {
+    const failure = (detail: string, cause?: unknown) =>
+      new UpgradeError(
+        {
+          title: "Could not check for OpenCode updates",
+          detail,
+          command: ["winget", "search", ...wingetArgs].join(" "),
+          retry: "Fix the issue above, then run opencode upgrade again.",
+        },
+        cause === undefined ? undefined : { cause },
+      )
+    const result = yield* exec(["winget", "search", ...wingetArgs], "1 minute").pipe(
+      Effect.mapError((cause) => failure(errorDetail(cause), cause)),
+    )
+    // Column headers are localized, but the result row always lists the identifier followed by the version.
+    const version = result.stdout
+      .split(/\r?\n|\r/)
+      .map((line) => line.trim().split(/\s+/))
+      .flatMap((tokens) => {
+        const index = tokens.findIndex((token) => token.toLowerCase() === wingetPackage.toLowerCase())
+        return index === -1 ? [] : tokens.slice(index + 1, index + 2)
+      })
+      .find((token) => parseReleaseVersion(token))
+    if (result.code !== 0 || !version) return yield* Effect.fail(failure(resultDetail(result)))
+    return version
+  })
+
   const latest = (selected?: Method) =>
     (selected ? Effect.succeed(selected) : method()).pipe(
-      Effect.flatMap(release),
-      Effect.map((data) => data.version),
+      Effect.flatMap((method) =>
+        method === "winget" ? wingetVersion() : release(method).pipe(Effect.map((data) => data.version)),
+      ),
     )
 
   const temporaryDirectory = (prefix: string) =>
@@ -360,7 +413,12 @@ const make = Effect.gen(function* () {
   const retaining = <A, E, R>(method: Method, effect: Effect.Effect<A, E, R>, directory = global.cache) => {
     if (process.platform !== "win32" || method === "brew") return effect
     // Only the installed binary is at stake; source checkouts run inside bun or node.
-    const owned = method === "curl" ? path.resolve(process.execPath) === curlBinary : installedPackage !== undefined
+    const owned =
+      method === "curl"
+        ? executable === curlBinary
+        : method === "winget"
+          ? installedWinget
+          : installedPackage !== undefined
     if (!owned) return effect
     return Effect.scoped(RetainedImage.retain(directory, "upgrade").pipe(Effect.andThen(effect))).pipe(
       Effect.provideService(FileSystem.FileSystem, fs),
@@ -405,26 +463,30 @@ const make = Effect.gen(function* () {
 
   const upgrade = Effect.fnUntraced(function* (method: Method, input: string) {
     if (!parseReleaseVersion(input)) return yield* Effect.fail(new Error(`Invalid version: ${input}`))
-    // raccoon_change - no Raccoon Homebrew formula exists
-    if (raccoon && method === "brew") return yield* Effect.fail(new Error("Raccoon is not distributed through Homebrew"))
+    // raccoon_change - Raccoon does not use OpenCode package-manager distributions
+    if (raccoon && (method === "brew" || method === "winget"))
+      return yield* Effect.fail(new Error(`Raccoon is not distributed through ${installNames[method]}`))
     const version = input.trim().replace(/^v/, "")
     // raccoon_change - pinned Raccoon upgrades never resolve an OpenCode package
     const packageName = raccoon
       ? "raccoon-code-cli"
-      : method === "brew" && installedFormula === "opencode"
-        ? "opencode"
-        : (yield* release(method)).package
+      : method === "winget"
+        ? wingetPackage
+        : method === "brew" && installedFormula === "opencode"
+          ? "opencode"
+          : (yield* release(method)).package
     const target = `${packageName}@${version}`
     if (installedPackage && packageName !== installedPackage && (method === "pnpm" || method === "yarn")) {
       return yield* Effect.fail(new Error(`Reinstall ${target} with ${method} to migrate from ${installedPackage}.`))
     }
-    const commands: Record<Exclude<Method, "bun" | "curl" | "brew">, string[]> = {
+    const commands: Record<Exclude<Method, "bun" | "curl" | "brew" | "winget">, string[]> = {
       // Keep the old package: uninstalling it can unlink the replacement command.
       npm: [
         "npm",
         "install",
         "--global",
-        ...((raccoon || (OPENCODE_ARTIFACT === "cli" && !installedPackage?.endsWith("/cli-node"))) ||
+        `--allow-scripts=${packageName}`,
+        ...(raccoon || (OPENCODE_ARTIFACT === "cli" && !installedPackage?.endsWith("/cli-node")) ||
         (installedPackage && packageName !== installedPackage)
           ? ["--force"]
           : []),
@@ -498,6 +560,22 @@ const make = Effect.gen(function* () {
           )
         }
         if (method === "brew") return yield* runUpgrade({ method, command: ["brew", "upgrade", packageName] })
+        if (method === "winget")
+          return yield* retaining(
+            method,
+            runUpgrade({
+              method,
+              command: [
+                "winget",
+                "upgrade",
+                ...wingetArgs,
+                "--version",
+                version,
+                "--silent",
+                "--accept-package-agreements",
+              ],
+            }),
+          )
         return yield* retaining(method, runUpgrade({ method, command: commands[method] }))
       }),
     ).pipe(
@@ -565,7 +643,12 @@ const make = Effect.gen(function* () {
   })
 
   const apply = Effect.fn("cli.updater.apply")(function* (version: string) {
-    if (!(yield* install(version))) return yield* Effect.fail(new Error("Installation method not found"))
+    if (!(yield* install(version)))
+      return yield* Effect.fail(
+        new Error(
+          "Could not detect the installation method. Update with your package manager or download the latest release.",
+        ),
+      )
   })
 
   const check = Effect.fn("cli.updater.check")(function* () {
@@ -575,7 +658,14 @@ const make = Effect.gen(function* () {
         // raccoon_change - source check message names the active product
         message: `This build runs from a source checkout. Use an installed ${product} release to check for updates.`,
       }
-    const version = yield* latest()
+    const detected = yield* method()
+    if (!detected)
+      return {
+        type: "unavailable" as const,
+        message:
+          "Could not detect the installation method. Update with your package manager or download the latest release.",
+      }
+    const version = yield* latest(detected)
     if (!parseReleaseVersion(version)) return yield* Effect.fail(new Error(`Invalid version: ${version}`))
     const current = yield* Ref.get(installedVersion)
     if (action(current, version, "auto") === "none") {

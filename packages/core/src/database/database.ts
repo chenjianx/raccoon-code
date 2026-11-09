@@ -3,7 +3,7 @@ export * as Database from "./database.js"
 import { EffectDrizzleSqlite } from "./drizzle.js"
 import { sqliteLayer, supportsForeignKeyToggle, supportsTuningPragmas } from "#sqlite"
 import { Context, Effect, Layer, Schema, Semaphore } from "effect"
-import type { SqlClient } from "effect/unstable/sql"
+import type { SqlClient } from "effect/sql"
 import { Global } from "@opencode/util/global"
 import { closeSync, existsSync, openSync } from "node:fs"
 import { chmod } from "node:fs/promises"
@@ -35,8 +35,10 @@ const databaseLayer = (lock: Effect.Effect<Semaphore.Semaphore>) =>
     Service,
     Effect.gen(function* () {
       const db = yield* makeDatabase
+      // An injected Durable Object client may run under a non-workerd module condition in tests.
+      const durableObject = EffectDrizzleSqlite.managesTransactionsNatively(db.$client)
 
-      if (supportsTuningPragmas) {
+      if (supportsTuningPragmas && !durableObject) {
         yield* db.run("PRAGMA journal_mode = WAL")
         yield* db.run("PRAGMA synchronous = NORMAL")
         yield* db.run("PRAGMA busy_timeout = 5000")
@@ -44,7 +46,7 @@ const databaseLayer = (lock: Effect.Effect<Semaphore.Semaphore>) =>
         yield* db.run("PRAGMA wal_checkpoint(PASSIVE)")
       }
       // Durable Object SQLite always enforces foreign keys and rejects the pragma.
-      if (supportsForeignKeyToggle) yield* db.run("PRAGMA foreign_keys = ON")
+      if (supportsForeignKeyToggle && !durableObject) yield* db.run("PRAGMA foreign_keys = ON")
       const semaphore = yield* lock
       yield* semaphore.withPermit(DatabaseMigration.apply(db))
 

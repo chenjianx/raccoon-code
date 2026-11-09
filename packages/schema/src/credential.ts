@@ -6,17 +6,18 @@ import { ephemeral, inventory } from "./event.js"
 import { IntegrationID, IntegrationMethodID } from "./integration-id.js"
 import { ascending } from "./identifier.js"
 import { NonNegativeInt, statics } from "./schema.js"
-import { Form } from "./form.js"
 
 export const ID = Schema.String.pipe(
   Schema.brand("Credential.ID"),
+  Schema.annotate({ identifier: "Credential.ID" }),
   statics((schema) => ({ create: () => schema.make("cred_" + ascending()) })),
 )
 export type ID = typeof ID.Type
 
+// A login was added, renamed or removed. Every change is to exactly one credential.
 const Updated = ephemeral({
   type: "credential.updated",
-  schema: {},
+  schema: { integrationID: IntegrationID, credentialID: ID },
 })
 const Switched = ephemeral({
   type: "credential.switched",
@@ -43,7 +44,6 @@ export const Key = Schema.Struct({
   type: Schema.Literal("key"),
   key: Schema.String,
   metadata: optional(Schema.Record(Schema.String, Schema.Unknown)),
-  configuration: optional(Form.Answer),
 }).annotate({ identifier: "Credential.Key" })
 
 /** References a credential source whose secrets and renewal are managed outside the credential store. */

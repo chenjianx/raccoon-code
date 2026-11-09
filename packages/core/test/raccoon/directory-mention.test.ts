@@ -1,7 +1,9 @@
 // raccoon_change start - verify directory mentions use the permissioned ReadTool
 import { expect } from "bun:test"
 import { Agent } from "@opencode/core/agent"
-import { Instance } from "@opencode/core/instance/service"
+import { Database } from "@opencode/core/database/database"
+import { Image } from "@opencode/core/image"
+import { Skill } from "@opencode/core/skill"
 import { Permission } from "@opencode/core/permission"
 import { Plugin } from "@opencode/core/plugin/service"
 import { PluginHooks } from "@opencode/core/plugin/hooks"
@@ -24,7 +26,7 @@ import path from "path"
 import { pathToFileURL } from "url"
 import { testEffect } from "../lib/effect"
 
-const it = testEffect(AppNodeBuilder.build(FSUtil.node))
+const it = testEffect(AppNodeBuilder.build(LayerNode.group([FSUtil.node, Database.node, Image.node, Skill.node])))
 
 it.effect("materializes a directory mention through ReadTool with file contents", () =>
   Effect.gen(function* () {
@@ -67,10 +69,6 @@ it.effect("materializes a directory mention through ReadTool with file contents"
         },
       }),
     )
-    const instances = Instance.Service.of({
-      // This fixture supplies only the Location services used by SessionPrompt.
-      provide: () => Effect.provide(services as Layer.Layer<Instance.Services>),
-    })
     const messageID = SessionMessage.ID.create()
     const result = yield* SessionPrompt.prepare({
       session,
@@ -84,7 +82,7 @@ it.effect("materializes a directory mention through ReadTool with file contents"
           },
         ],
       },
-    }).pipe(Effect.provideService(Instance.Service, instances))
+    }).pipe(Effect.provide(services))
 
     expect(calls).toHaveLength(1)
     expect(calls[0]).toMatchObject({

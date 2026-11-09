@@ -3,16 +3,19 @@ import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { expect } from "bun:test"
+import { binaryPath } from "@opencode/pty"
 import { PersistentPty } from "@opencode/schema/persistent-pty"
 import { Session } from "@opencode/schema/session"
 import { Effect, Exit, Schema, Scope } from "effect"
-import { HttpServer } from "effect/unstable/http"
+import { HttpServer } from "effect/http"
 import { OpenCode } from "../../client/src/promise/index"
+import { fakeDaemon } from "../../core/test/fixture/persistent-pty-daemon"
 import { it } from "../../core/test/lib/effect"
 import { ServerProcess } from "../src/process"
 
-const binary = process.env.OPENCODE_PTY_BIN ?? "/root/projects/opencode-pty/target/debug/opencode-pty"
-const smoke = existsSync(binary) ? it.live : it.live.skip
+// These tests drive Unix shell commands, so they skip Windows; the package resolves no binary on unsupported platforms.
+const binary = process.platform === "win32" ? undefined : (process.env.OPENCODE_PTY_BIN ?? binaryPath)
+const smoke = binary !== undefined && existsSync(binary) ? it.live : it.live.skip
 
 smoke(
   "reads the latest controlled terminal with optional physical line counts through the SDK",
@@ -130,6 +133,137 @@ smoke(
   20_000,
 )
 
+smoke(
+  "renames and resizes a terminal independently through the SDK",
+  () =>
+    Effect.gen(function* () {
+      const fixture = yield* testDirectory()
+      const server = yield* ServerProcess.start<never, never>({
+        hostname: "127.0.0.1",
+        port: 0,
+        password: "secret",
+        app: { version: "test-version" },
+        database: { path: fixture.database },
+        pty: { root: fixture.directory },
+        fs: { filewatcher: false },
+      })
+      const base = HttpServer.formatAddress(server.address)
+      const client = OpenCode.make({ baseUrl: base, headers: { authorization: `Basic ${btoa("opencode:secret")}` } })
+      const sessionID = Session.ID.make("ses_persistent_pty_rename")
+      const terminal = yield* Effect.promise(() =>
+        client.experimental.persistentPty.create({
+          sessionID,
+          command: "/bin/sh",
+          args: ["-c", "stty -echo; printf '\\033]2;from-shell\\007ready'; exec cat"],
+          cwd: fixture.root,
+          title: "created",
+          env: {},
+          size: { cols: 40, rows: 10 },
+        }),
+      )
+      expect(terminal.userTitle).toBeNull()
+      yield* waitForText(base, terminal.id, "ready")
+      yield* Effect.promise(() => waitForTitle(client, terminal.id, "from-shell"))
+      const events = yield* Effect.acquireRelease(
+        Effect.promise(() => openEventStream(base)),
+        (stream) => Effect.promise(() => stream.close()),
+      )
+
+      const renamed = yield* Effect.promise(() =>
+        client.experimental.persistentPty.update({ ptyID: terminal.id, title: "build" }),
+      )
+      expect(renamed).toMatchObject({ title: "build", userTitle: "build", size: { cols: 40, rows: 10 } })
+      expect(yield* Effect.promise(() => events.next("persistent-pty.updated"))).toMatchObject({
+        data: { sessionID, terminal: { id: terminal.id, title: "build", userTitle: "build" } },
+      })
+      expect(yield* Effect.promise(() => client.experimental.persistentPty.list({ sessionID }))).toMatchObject([
+        { id: terminal.id, title: "build", userTitle: "build" },
+      ])
+
+      const resized = yield* Effect.promise(() =>
+        client.experimental.persistentPty.update({ ptyID: terminal.id, size: { cols: 50, rows: 12 } }),
+      )
+      expect(resized).toMatchObject({ title: "build", userTitle: "build", size: { cols: 50, rows: 12 } })
+
+      const cleared = yield* Effect.promise(() =>
+        client.experimental.persistentPty.update({ ptyID: terminal.id, title: null }),
+      )
+      expect(cleared).toMatchObject({ title: "from-shell", userTitle: null, size: { cols: 50, rows: 12 } })
+      expect(yield* Effect.promise(() => events.next("persistent-pty.updated"))).toMatchObject({
+        data: { sessionID, terminal: { id: terminal.id, title: "from-shell", userTitle: null } },
+      })
+
+      const missing = yield* Effect.promise(async () => {
+        const response = await fetch(new URL("/api/experimental/persistent-pty/pty_persistent_1", base), {
+          method: "PUT",
+          headers: { authorization: `Basic ${btoa("opencode:secret")}`, "content-type": "application/json" },
+          body: JSON.stringify({ title: "nope" }),
+        })
+        await response.arrayBuffer()
+        return response.status
+      })
+      expect(missing).toBe(404)
+      yield* Effect.promise(() => client.experimental.persistentPty.shutdown())
+    }),
+  20_000,
+)
+
+it.live("reports renaming as unsupported on a daemon without the rename feature", () =>
+  Effect.gen(function* () {
+    const fixture = yield* testDirectory()
+    const daemon = yield* fakeDaemon()
+    const server = yield* ServerProcess.start<never, never>({
+      hostname: "127.0.0.1",
+      port: 0,
+      password: "secret",
+      app: { version: "test-version" },
+      database: { path: fixture.database },
+      pty: daemon.options,
+      fs: { filewatcher: false },
+    })
+    const base = HttpServer.formatAddress(server.address)
+    const created = yield* request(base, "POST", "/api/experimental/session/ses_old_daemon/terminal", {
+      args: [],
+      cwd: fixture.root,
+      title: "created",
+      env: {},
+    })
+    const terminal = Schema.decodeUnknownSync(PersistentPty.Info)(created.data)
+    expect(terminal.userTitle).toBeNull()
+
+    const response = yield* Effect.promise(async () => {
+      const response = await fetch(new URL(`/api/experimental/persistent-pty/${terminal.id}`, base), {
+        method: "PUT",
+        headers: { authorization: `Basic ${btoa("opencode:secret")}`, "content-type": "application/json" },
+        body: JSON.stringify({ title: "build" }),
+      })
+      return { status: response.status, body: await response.json() }
+    })
+
+    expect(response).toEqual({
+      status: 501,
+      body: {
+        _tag: "PtyFeatureUnsupportedError",
+        feature: "rename",
+        message: "Terminal renaming will be available after OpenCode's terminal service restarts",
+      },
+    })
+    expect(daemon.ops).not.toContain("rename")
+    expect((yield* request(base, "GET", `/api/experimental/persistent-pty/${terminal.id}`)).data).toMatchObject({
+      title: "test",
+      userTitle: null,
+    })
+  }),
+)
+
+async function waitForTitle(client: ReturnType<typeof OpenCode.make>, ptyID: string, title: string) {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if ((await client.experimental.persistentPty.get({ ptyID })).title === title) return
+    await Bun.sleep(20)
+  }
+  throw new Error(`Terminal ${ptyID} did not report the title ${title}`)
+}
+
 async function waitForRead(client: ReturnType<typeof OpenCode.make>, sessionID: string, ptyID: string) {
   for (let attempt = 0; attempt < 100; attempt++) {
     const result = await client.experimental.persistentPty.read({ sessionID })
@@ -138,6 +272,55 @@ async function waitForRead(client: ReturnType<typeof OpenCode.make>, sessionID: 
   }
   throw new Error(`Terminal ${ptyID} did not become current for ${sessionID}`)
 }
+
+smoke(
+  "rejects a cwd that is missing or not a directory without starting a shell",
+  () =>
+    Effect.gen(function* () {
+      const fixture = yield* testDirectory()
+      const server = yield* ServerProcess.start<never, never>({
+        hostname: "127.0.0.1",
+        port: 0,
+        password: "secret",
+        app: { version: "test-version" },
+        database: { path: fixture.database },
+        pty: { root: fixture.directory },
+        fs: { filewatcher: false },
+      })
+      const base = HttpServer.formatAddress(server.address)
+      const createPath = "/api/experimental/session/ses_invalid_cwd/terminal"
+      const file = path.join(fixture.root, "file.txt")
+      yield* Effect.promise(() => fs.writeFile(file, ""))
+      for (const cwd of [path.join(fixture.root, "missing"), file]) {
+        const response = yield* Effect.promise(async () => {
+          const response = await fetch(new URL(createPath, base), {
+            method: "POST",
+            headers: { authorization: `Basic ${btoa("opencode:secret")}`, "content-type": "application/json" },
+            body: JSON.stringify({ command: "/bin/sh", args: [], cwd, title: "invalid", env: {} }),
+          })
+          return { status: response.status, body: await response.json() }
+        })
+        expect(response).toEqual({
+          status: 400,
+          body: {
+            _tag: "InvalidRequestError",
+            message: `cwd is not a directory: ${cwd}`,
+            kind: "invalid_cwd",
+            field: "cwd",
+          },
+        })
+      }
+      // The daemon is never started, so no shell can have been spawned.
+      expect(existsSync(fixture.directory)).toBeFalse()
+      expect((yield* request(base, "GET", createPath)).data).toEqual([])
+      const valid = { command: "/bin/sh", args: [], cwd: fixture.root, title: "valid", env: {} }
+      const created = yield* request(base, "POST", createPath, valid)
+      const terminal = Schema.decodeUnknownSync(PersistentPty.Info)(created.data)
+      expect(terminal.cwd).toBe(fixture.root)
+      yield* request(base, "POST", "/api/experimental/persistent-pty/shutdown")
+    }),
+  20_000,
+)
 
 smoke(
   "creates two persistent terminals for one session through the client API",
@@ -190,14 +373,15 @@ smoke(
       const first = Schema.decodeUnknownSync(PersistentPty.Info)(
         (yield* request(base, "POST", `/api/experimental/session/${sessionID}/terminal`, {
           command: "/usr/bin/env",
-          args: ["/bin/sh", "-c", "stty -echo; printf terminal-one; cat"],
+          // Exercise transport bursts without macOS's 1024-byte canonical line buffer limit.
+          args: ["/bin/sh", "-c", "stty -echo -icanon min 1 time 0; printf terminal-one; cat"],
           cwd: process.cwd(),
           title: "first",
           env: {},
         })).data,
       )
       expect(first.command).toBe("/usr/bin/env")
-      expect(first.args).toEqual(["/bin/sh", "-c", "stty -echo; printf terminal-one; cat"])
+      expect(first.args).toEqual(["/bin/sh", "-c", "stty -echo -icanon min 1 time 0; printf terminal-one; cat"])
       expect(first.cwd).toBe(process.cwd())
       expect(yield* Effect.promise(() => events.next("persistent-pty.added"))).toMatchObject({
         data: { sessionID, terminal: { id: first.id } },
@@ -636,7 +820,13 @@ async function verifySharedControl(base: string, ptyID: string) {
     second.socket.send(inputFrame(70, 20, "from-second\n"))
     await waitForSocketOutput([first, second], "from-second")
 
-    await waitForForegroundProcess([first, second], "cat")
+    // opencode-pty reads the foreground process from /proc on Linux and reports none elsewhere
+    // (foreground_process in packages/process-daemon/src/service.rs).
+    if (process.platform === "linux") await waitForForegroundProcess([first, second], "cat")
+    if (process.platform !== "linux") {
+      expect(first.foregroundProcess).toBeNull()
+      expect(second.foregroundProcess).toBeNull()
+    }
 
     for (const character of "printf abc | rev\n") second.socket.send(inputFrame(70, 20, character))
     await waitForSocketOutput([first, second], "printf abc | rev")
@@ -644,12 +834,36 @@ async function verifySharedControl(base: string, ptyID: string) {
     second.socket.send(inputFrame(70, 20, "x".repeat(1024)))
     second.socket.send(inputFrame(70, 20, "after-burst\n"))
     await waitForSocketOutput([first, second], "after-burst")
+    expect(first.output).toContain("x".repeat(1024) + "after-burst")
+    expect(second.output).toContain("x".repeat(1024) + "after-burst")
     expect(first.closed).toBeFalse()
     expect(second.closed).toBeFalse()
     expect(first.resizes).toBeGreaterThan(0)
     expect(second.resizes).toBeGreaterThan(0)
     expect(first.output).not.toContain("\0")
     expect(second.output).not.toContain("\0")
+    expect(first.size).toEqual({ cols: 70, rows: 20 })
+    expect(second.size).toEqual({ cols: 70, rows: 20 })
+
+    await waitForController(first, "second")
+    second.socket.close()
+    // Promotion is emitted by the daemon only after the server detaches the closed socket.
+    await waitForController(first, "first")
+    expect(second.closed).toBeTrue()
+    first.socket.send(inputFrame(70, 20, "after-detach\n"))
+    await waitForSocketOutput([first], "after-detach")
+
+    const replay = await openTerminalSocket(base, ptyID, "replay", "observer")
+    try {
+      // openTerminalSocket resolves at replay_complete, before any new input is sent.
+      expect(replay.output).toContain("from-first")
+      expect(replay.output).toContain("from-second")
+      expect(replay.output).toContain("after-detach")
+      first.socket.send(inputFrame(70, 20, "after-replay\n"))
+      await waitForSocketOutput([first, replay], "after-replay")
+    } finally {
+      replay.socket.close()
+    }
   } finally {
     first.socket.close()
     second.socket.close()
@@ -681,6 +895,8 @@ async function openTerminalSocket(
     output: "",
     closed: false,
     resizes: 0,
+    size: undefined as { cols: number; rows: number } | undefined,
+    controller: undefined as string | undefined,
     foregroundProcess: null as string | null,
   }
   state.socket.binaryType = "arraybuffer"
@@ -702,6 +918,12 @@ async function openTerminalSocket(
           return
         }
         state.resizes++
+        if (typeof message.cols === "number" && typeof message.rows === "number")
+          state.size = { cols: message.cols, rows: message.rows }
+        return
+      }
+      if (message.type === "controller_changed") {
+        state.controller = typeof message.attachmentID === "string" ? message.attachmentID : undefined
         return
       }
       if (message.type === "foreground_process_changed") {
@@ -732,6 +954,15 @@ async function openTerminalSocket(
     })
   })
   return state
+}
+
+async function waitForController(socket: { controller: string | undefined; closed: boolean }, expected: string) {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (socket.controller === expected) return
+    if (socket.closed) throw new Error("Persistent PTY observer disconnected")
+    await Bun.sleep(20)
+  }
+  throw new Error(`Persistent PTY controller did not become ${expected}: ${socket.controller}`)
 }
 
 async function waitForForegroundProcess(

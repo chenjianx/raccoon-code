@@ -1,6 +1,6 @@
 import { describe, expect } from "bun:test"
 import { Clock, Effect, Schedule } from "effect"
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http"
 import { Credential } from "@opencode/core/credential"
 import { Integration } from "@opencode/core/integration"
 import { Plugin } from "@opencode/core/plugin"
@@ -63,7 +63,7 @@ const fixture = Effect.fn(function* () {
     editor.method.update({ integrationID, method: { type: "key" } })
   })
   const plugin = yield* Plugin.Service
-  const host = yield* PluginHost.make(plugin)
+  const host = yield* PluginHost.make(plugin, "test")
   yield* GitLabPlugin.effect(host).pipe(Effect.provideService(HttpClient.HttpClient, http))
   const status = (attemptID: Integration.AttemptID) =>
     integrations.oauth
