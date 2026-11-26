@@ -1,10 +1,10 @@
 import { TextareaRenderable, type KeyEvent, type PasteEvent } from "@opentui/core" // raccoon_change - mask secret dialog input
 import { Keymap } from "../context/keymap"
 import { useTheme } from "../context/theme"
-import { DialogFooter, DialogHeader, DialogLayout, useDialog, type DialogSize } from "./dialog"
+import { DialogButtons, DialogFooter, DialogHeader, DialogLayout, useDialog, type DialogSize } from "./dialog"
 import { Show, createEffect, createSignal, onMount, type JSX } from "solid-js"
 import { Spinner } from "../component/spinner"
-import { useCursorStyle } from "../config"
+import { useCursorStyle, useNewDesigns } from "../config"
 import { useRenderer } from "@opentui/solid"
 
 export type DialogPromptAction = {
@@ -37,6 +37,7 @@ export function DialogPrompt(props: DialogPromptProps) {
   const renderer = useRenderer()
   const theme = useTheme().surface("dialog")
   const cursorStyle = useCursorStyle()
+  const newDesigns = useNewDesigns()
   const [textareaTarget, setTextareaTarget] = createSignal<TextareaRenderable>()
   let textarea: TextareaRenderable
   // raccoon_change start - store secret input separately so selection and render buffers contain masks only
@@ -163,7 +164,6 @@ export function DialogPrompt(props: DialogPromptProps) {
 
   return (
     <DialogLayout
-      footerGap={2}
       header={
         <DialogHeader
           title={props.title}
@@ -173,14 +173,11 @@ export function DialogPrompt(props: DialogPromptProps) {
           }}
         />
       }
-      footer={{
-        actions: {
-          primary: [
-            ...extraActions(),
-            { title: "submit", command: "dialog.prompt.submit", disabled: props.busy, onTrigger: confirm },
-          ],
-        },
-      }}
+      buttons={
+        newDesigns() ? (
+          <DialogButtons buttons={[{ label: "Submit", run: confirm }]} active={0} hints={extraActions()} />
+        ) : undefined
+      }
       legacyFooter={
         <Show when={!props.busy} fallback={<text fg={theme.text.muted}>processing…</text>}>
           <DialogFooter

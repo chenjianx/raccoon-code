@@ -76,10 +76,16 @@ const findIntegration = Effect.fn("cli.auth.login.integration")(function* (clien
   return yield* resolveIntegration(integrations, id)
 })
 
+// OpenCode Go connects through OpenCode, so it's only offered to people who already saved a Go key.
 export function loginChoices(integrations: IntegrationInfo[]): IntegrationChoice[] {
   const raccoon = process.env.RACCOON_CLI === "1" // raccoon_change - recommend Raccoon in its CLI
   return integrations
     .filter((integration) => connectMethods(integration).length > 0)
+    .filter(
+      (integration) =>
+        integration.id !== "opencode-go" ||
+        integration.connections.some((connection) => connection.type === "credential"),
+    )
     .toSorted(
       (a, b) =>
         (raccoon ? Number(b.id === "raccoon") - Number(a.id === "raccoon") : 0) || // raccoon_change - sort Raccoon first

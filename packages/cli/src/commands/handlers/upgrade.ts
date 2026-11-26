@@ -18,8 +18,9 @@ export default Runtime.handler(
       const method = Option.getOrUndefined(input.method) ?? (yield* updater.method())
       if (!method)
         return yield* Effect.fail(
-          // raccoon_change - report the active product in upgrade messages
-          new Error(`Could not detect the installation method. Pass --method to choose how to upgrade ${product}.`),
+          (yield* updater.managed(Option.getOrUndefined(input.target))) ??
+            // raccoon_change - report the active product in upgrade messages
+            new Error(`Could not detect the installation method. Pass --method to choose how to upgrade ${product}.`),
         )
 
       log.info(`Using method: ${method}`)

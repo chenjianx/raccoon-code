@@ -43,15 +43,15 @@ it.effect("materializes a directory mention through ReadTool with file contents"
       permissions: [{ action: "read", resource: "*", effect: "allow" }],
     })
     const calls: Parameters<Tool.Snapshot["execute"]>[0][] = []
-    const rules: Permission.Ruleset[] = []
+    const policies: Permission.Policy.Policy[] = []
     const selected = Agent.Info.default(Agent.ID.make("build"))
     const services = Layer.mergeAll(
       LayerNode.compile(PluginHooks.node),
       Layer.mock(Plugin.Service, { awaitActivation: Effect.void }),
       Layer.mock(Agent.Service, { select: () => Effect.succeed({ id: selected.id, info: selected }) }),
       Layer.mock(Tool.Service, {
-        snapshot: (permissions) => {
-          rules.push(permissions ?? [])
+        snapshot: (policy) => {
+          policies.push(policy ?? Permission.Policy.empty)
           return Effect.succeed({
             definitions: [],
             execute: (input) => {
@@ -91,7 +91,7 @@ it.effect("materializes a directory mention through ReadTool with file contents"
       messageID,
       call: { type: "tool-call", name: "read", input: { path: directory, includeDirectoryFiles: true } },
     })
-    expect(rules[0]).toEqual(Permission.merge(selected.permissions, session.permissions ?? []))
+    expect(policies[0]).toEqual(Permission.Policy.fromRules(selected.permissions, session.permissions ?? []))
     expect(result.payload.files?.[0]?.mime).toBe("application/x-directory")
     expect(Buffer.from(result.payload.files?.[0]?.data ?? "", "base64").toString("utf8")).toContain(
       "export const value = 42",
