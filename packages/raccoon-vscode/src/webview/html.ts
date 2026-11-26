@@ -56,7 +56,7 @@ export function buildWebviewHtml(
 </head>
 <body>
   <div id="root"></div>
-  <script nonce="${nonce}" src="${opts.scriptUri}"></script>
+  <script nonce="${nonce}" type="module" src="${opts.scriptUri}"></script>
 </body>
 </html>`
 }
